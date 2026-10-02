@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>MarkdownView</title>
+<script>
+  // The desktop footer is laid out by Qt; keep the HTML footer for web previews.
+  if (typeof qt !== "undefined") { document.documentElement.dataset.nativeStatusbar = "true"; }
+</script>
+<link rel="stylesheet" href="./vditor/dist/index.css">
+<link rel="stylesheet" href="./ui.css">
+</head>
+<body>
+<section id="mdv-find-panel" role="search" aria-label="查找与替换" hidden>
+  <div class="find-row">
+    <input id="mdv-find-input" type="search" placeholder="查找文档内容" aria-label="查找内容" autocomplete="off">
+    <span id="mdv-find-count" aria-live="polite"></span>
+    <button id="mdv-find-prev" type="button" title="上一个 · Shift+F3" aria-label="上一个匹配">↑</button>
+    <button id="mdv-find-next" type="button" title="下一个 · F3" aria-label="下一个匹配">↓</button>
+    <button id="mdv-find-close" type="button" title="关闭 · Esc" aria-label="关闭查找">×</button>
+  </div>
+  <div id="mdv-replace-row" class="find-row" hidden>
+    <input id="mdv-replace-input" type="text" placeholder="替换为" aria-label="替换内容" autocomplete="off">
+    <button id="mdv-replace-one" type="button">替换</button>
+    <button id="mdv-replace-all" type="button">全部替换</button>
+  </div>
+  <div class="find-options">
+    <label><input id="mdv-find-case" type="checkbox">区分大小写</label>
+    <label><input id="mdv-find-word" type="checkbox">整词匹配</label>
+    <button id="mdv-find-toggle" type="button">显示替换</button>
+  </div>
+</section>
+<div id="vditor"></div>
+<div id="empty-hint" hidden>
+  <div class="empty-icon"><svg class="ui-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></div>
+  <h1>从一个想法开始</h1>
+  <p>在这里书写，让思路慢慢成形。</p>
+  <div class="empty-shortcuts"><span>打开文档 <kbd>Ctrl O</kbd></span><span>保存文档 <kbd>Ctrl S</kbd></span></div>
+</div>
+<footer id="editor-statusbar">
+  <div class="status-left">
+    <button id="mdview-counter" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="mdview-stats-backdrop" title="查看文字统计">字数 0</button>
+    <span class="status-divider">/</span><span id="editor-mode">即时渲染</span>
+  </div>
+  <div class="status-right"><span>UTF-8</span><span class="status-divider">·</span><span>Markdown</span></div>
+</footer>
+<div id="mdv-toolbar-tooltip" role="tooltip"></div>
+<section id="mdv-underline-panel" role="dialog" aria-label="下划线样式" hidden>
+  <div class="underline-heading">下划线样式</div>
+  <div id="mdv-underline-options" role="group" aria-label="线型"></div>
+</section>
+<section id="mdv-highlight-panel" role="dialog" aria-label="高亮颜色" hidden>
+  <div class="highlight-heading">高亮颜色</div>
+  <div id="mdv-highlight-presets" aria-label="常用颜色"></div>
+  <div class="highlight-custom">
+    <label for="mdv-highlight-custom">自定义</label>
+    <input id="mdv-highlight-custom" type="color" value="#ffe58f" aria-label="自定义高亮颜色">
+    <input id="mdv-highlight-hex" type="text" value="#FFE58F" maxlength="7" aria-label="高亮颜色十六进制值" spellcheck="false">
+  </div>
+  <div id="mdv-highlight-error" role="status" hidden>请输入有效的颜色，如 #FFE58F</div>
+  <div class="highlight-actions">
+    <button id="mdv-highlight-cancel" type="button">取消</button>
+    <button id="mdv-highlight-apply" type="button">应用颜色</button>
+  </div>
+</section>
+<aside id="mdv-review-panel" aria-label="文档批注" hidden>
+  <header class="review-header"><h2>批注 <span id="mdv-review-count">0</span></h2>
+    <button id="mdv-review-close" type="button" title="隐藏批注" aria-label="隐藏批注">×</button></header>
+  <div class="review-tools"><button id="mdv-review-add" type="button">＋ 添加批注</button><span>Ctrl + Alt + M</span></div>
+  <p id="mdv-review-message" role="status" hidden></p>
+  <form id="mdv-review-composer" hidden>
+    <blockquote id="mdv-review-quote"></blockquote>
+    <textarea id="mdv-review-input" rows="4" maxlength="10000" placeholder="输入批注…" aria-label="批注内容"></textarea>
+    <div class="review-actions"><button id="mdv-review-cancel" type="button">取消</button><button id="mdv-review-submit" type="submit">添加</button></div>
+  </form>
+  <div id="mdv-review-list" aria-label="批注列表"></div>
+  <p id="mdv-review-empty">选中正文中的文字，添加第一条批注。</p>
+</aside>
+<div id="mdview-stats-backdrop" role="presentation">
+  <section class="mdview-stats-dialog" role="dialog" aria-labelledby="mdview-stats-title">
+    <div class="mdview-stats-header">
+      <h2 id="mdview-stats-title">文字统计</h2>
+      <button id="mdview-stats-close" type="button" aria-label="关闭">×</button>
+    </div>
+    <p id="mdview-stats-summary" hidden></p>
+    <div class="mdview-stats-grid">
+      <div class="mdview-stats-item"><span class="mdview-stats-label">字数</span><strong class="mdview-stats-value" data-stat="words">0</strong></div>
+      <div class="mdview-stats-item"><span class="mdview-stats-label">字符（不含空格）</span><strong class="mdview-stats-value" data-stat="chars">0</strong></div>
+      <div class="mdview-stats-item"><span class="mdview-stats-label">字符（含空格）</span><strong class="mdview-stats-value" data-stat="charsWithSpaces">0</strong></div>
+      <div class="mdview-stats-item"><span class="mdview-stats-label">行数</span><strong class="mdview-stats-value" data-stat="lines">0</strong></div>
+      <div class="mdview-stats-item"><span class="mdview-stats-label">段落数</span><strong class="mdview-stats-value" data-stat="paragraphs">0</strong></div>
+      <div class="mdview-stats-item"><span class="mdview-stats-label">中文字符</span><strong class="mdview-stats-value" data-stat="cjk">0</strong></div>
+    </div>
+  </section>
+</div>
+<script>
+  window.__err = null;
+  window.onerror = function (msg, src, line, col) {
+    window.__err = String(msg) + " @ " + String(src).split("/").pop() + ":" + line + ":" + col;
+  };
+</script>
+<script src="qrc:///qtwebchannel/qwebchannel.js"></script>
+<script src="./vditor/dist/js/i18n/zh_CN.js"></script>
+<script>window.__editorLocales = {zh_CN: window.VditorI18n};</script>
+<script src="./vditor/dist/js/i18n/en_US.js"></script>
+<script>window.__editorLocales.en = window.VditorI18n; window.VditorI18n = window.__editorLocales.zh_CN;</script>
+<script src="./language.js"></script>
+<script src="./vditor/dist/index.min.js"></script>
+<script src="./writing_features.js"></script>
+<script src="./inline_formats.js"></script>
+<script src="./review_features.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  // ---------- 数学分隔符转换 ----------
+  // 源文件使用 \(...\) / \[...\]（LaTeX 风格），Vditor/Lute 只识别 $...$ / $$...$$。
+  // 加载时转换给编辑器，保存时还原，代码块与行内代码内的内容不动。
+
+  function transformOutsideCode(md, fn) {
+    // 捕获组使 split 结果中奇数项为代码段
+    var pattern = /(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g;
+    var parts = md.split(pattern);
+    for (var i = 0; i < parts.length; i++) {
+      if (i % 2 === 0 && parts[i]) {
+        parts[i] = fn(parts[i]);
+      }
+    }
+    return parts.join("");
+  }
+
+  function mdToEditor(md) {
+    return transformOutsideCode(md, function (seg) {
+      // \[ ... \]  ->  $$...$$
+      seg = seg.replace(/\\\[([\s\S]+?)\\\]/g, function (m, p) { return "$$" + p + "$$"; });
+      // \( ... \)  ->  $...$
+      seg = seg.replace(/\\\(([\s\S]+?)\\\)/g, function (m, p) { return "$" + p + "$"; });
+      return seg;
+    });
+  }
+
+  function editorToMd(md) {
+    return transformOutsideCode(md, function (seg) {
+      // $...$（排除 $$） ->  \(...\)
+      seg = seg.replace(/(?<!\$)\$([^$\n]+?)\$(?!\$)/g, function (m, p) {
+        return "\\(" + p + "\\)";
+      });
+      return seg;
+    });
+  }
+
+  // ---------- 图片相对路径显示 ----------
+  window.__mdDirUrl = null; // 形如 file:///C:/path/to/dir/，由 Python 设置
+
+  function rewriteImgSrc(img) {
+    if (!img || img.hasAttribute("data-osrc")) { return; }
+    var src = img.getAttribute("src");
+    if (!src || !window.__mdDirUrl) { return; }
+    if (/^(https?:|data:|file:|qrc:)/i.test(src)) { return; }
+    img.setAttribute("data-osrc", src);
+    var encoded = src.split("/").map(function (part) {
+      try { return encodeURIComponent(decodeURIComponent(part)); }
+      catch (e) { return encodeURIComponent(part); }
+    }).join("/");
+    img.setAttribute("src", window.__mdDirUrl + encoded);
+  }
+
+  function scanImages() {
+    var imgs = document.querySelectorAll("#vditor img");
+    for (var i = 0; i < imgs.length; i++) { rewriteImgSrc(imgs[i]); }
+  }
+
+  var imgObserver = new MutationObserver(function (records) {
+    records.forEach(function (record) {
+      record.addedNodes.forEach(function (node) {
+        if (node.nodeType !== Node.ELEMENT_NODE) { return; }
+        if (node.tagName === "IMG") { rewriteImgSrc(node); }
+        else { node.querySelectorAll("img").forEach(rewriteImgSrc); }
+      });
+    });
+  });
+
+  // 取值前把图片 src 还原为相对路径，取完再改回绝对路径
+  function withRestoredImgSrc(fn) {
+    var imgs = document.querySelectorAll("#vditor img[data-osrc]");
+    var saved = [];
+    for (var i = 0; i < imgs.length; i++) {
+      saved.push([imgs[i], imgs[i].getAttribute("data-osrc")]);
+    }
+    saved.forEach(function (pair) {
+      pair[0].removeAttribute("data-osrc");
+      pair[0].setAttribute("src", pair[1]);
+    });
+    try {
+      return fn();
+    } finally {
+      saved.forEach(function (pair) { rewriteImgSrc(pair[0]); });
+    }
+  }
+
+  // ---------- Qt 桥 ----------
+  var bridge = null;
+  function onBridgeReady(cb) {
+    if (window.bridge) { cb(); return; }
+    new QWebChannel(qt.webChannelTransport, function (channel) {
+      window.bridge = channel.objects.bridge;
+      bridge = window.bridge;
+      cb();
+    });
+  }
+
+  var loadingContent = false;
+  function notifyDirty() {
+    if (loadingContent) { return; }
+    if (bridge) { bridge.notifyDirty(); }
+  }
+
+  // ---------- 左下角计数条 ----------
+  var counterEl = document.getElementById("mdview-counter");
+  var statsBackdrop = document.getElementById("mdview-stats-backdrop");
+  var statsClose = document.getElementById("mdview-stats-close");
+
+  function computeStats(md) {
+    var cjk = (md.match(/[一-鿿㐀-䶿]/g) || []).length;
+    var latin = (md.replace(/[一-鿿㐀-䶿]/g, " ").match(/[A-Za-z0-9]+/g) || []).length;
+    var text = md.replace(/\n+$/, "");
+    var trimmed = text.trim();
+    return {
+      words: cjk + latin,
+      chars: md.replace(/\s/g, "").length,
+      charsWithSpaces: md.length,
+      lines: text ? text.split("\n").length : 0,
+      paragraphs: trimmed ? trimmed.split(/\n\s*\n/).length : 0,
+      cjk: cjk
+    };
+  }
+
+  var totalStats = computeStats("");
+  var selectedText = "";
+  var lastReportedStatus = "";
+  function renderSelectionCounter(text) {
+    selectedText = text || "";
+    var selectedWords = selectedText ? computeStats(selectedText).words : -1;
+    counterEl.textContent = selectedWords >= 0 ? "选中 " + selectedWords + " / 全文 " + totalStats.words : "字数 " + totalStats.words;
+    var mode = vditor.getCurrentMode();
+    var status = [totalStats.words, selectedWords, mode].join(":");
+    if (bridge && bridge.reportEditorStatus && status !== lastReportedStatus) {
+      lastReportedStatus = status;
+      bridge.reportEditorStatus(totalStats.words, selectedWords, mode);
+    }
+  }
+  var counterTimer = null;
+  function updateCounter() {
+    clearTimeout(counterTimer);
+    counterTimer = setTimeout(renderCounter, 150);
+    if (window.refreshReview) { window.refreshReview(); }
+  }
+
+  function renderCounter() {
+    try {
+      var value = vditor.getValue();
+      totalStats = computeStats(value);
+      // 格式标记、HTML 标签及批注数据不属于正文文字。
+      if (window.editorDocumentText) {
+        var plainStats = computeStats(window.editorDocumentText());
+        ["words", "chars", "charsWithSpaces", "cjk"].forEach(function (key) { totalStats[key] = plainStats[key]; });
+      }
+      renderSelectionCounter(window.editorSelectedText ? window.editorSelectedText() : "");
+      document.getElementById("empty-hint").hidden = value.trim().length > 0;
+      document.getElementById("editor-mode").textContent = {
+        ir: "即时渲染", sv: "源代码", wysiwyg: "所见即所得"
+      }[vditor.getCurrentMode()];
+    } catch (e) { /* 编辑器尚未就绪 */ }
+  }
+
+  function showStatsDialog() {
+    renderCounter();
+    var stats = selectedText ? computeStats(selectedText) : totalStats;
+    document.getElementById("mdview-stats-title").textContent = selectedText ? "选中文字统计" : "文字统计";
+    var summary = document.getElementById("mdview-stats-summary");
+    summary.hidden = !selectedText;
+    summary.textContent = "选中 " + stats.words + " 字 / 全文 " + totalStats.words + " 字";
+    Object.keys(stats).forEach(function (key) {
+      var element = statsBackdrop.querySelector('[data-stat="' + key + '"]');
+      if (element) { element.textContent = stats[key]; }
+    });
+    statsBackdrop.classList.add("is-open");
+    counterEl.setAttribute("aria-expanded", "true");
+    statsClose.focus();
+  }
+
+  function hideStatsDialog() {
+    statsBackdrop.classList.remove("is-open");
+    counterEl.setAttribute("aria-expanded", "false");
+    if (document.documentElement.dataset.nativeStatusbar === "true") { vditor.focus(); }
+    else { counterEl.focus(); }
+  }
+
+  window.showStatsDialog = showStatsDialog;
+  counterEl.addEventListener("mousedown", function (event) { event.preventDefault(); });
+  counterEl.addEventListener("click", showStatsDialog);
+  statsClose.addEventListener("click", hideStatsDialog);
+  statsBackdrop.addEventListener("click", function (event) {
+    if (event.target === statsBackdrop) { hideStatsDialog(); }
+  });
+
+  // ---------- 自定义全屏（可滚动）----------
+  function toggleFullscreen() {
+    var el = document.getElementById("vditor");
+    var enabled = el.classList.toggle("mdv-fullscreen");
+    if (bridge) { bridge.requestFullscreen(enabled); }
+  }
+  window.toggleFullscreen = toggleFullscreen;
+
+  // ---------- 包裹选区的自定义工具 ----------
+  function wrapSelection(prefix, suffix) {
+    var sel = "";
+    try { sel = vditor.getSelection() || ""; } catch (e) {}
+    if (sel) { vditor.deleteValue(); }
+    vditor.insertMD(prefix + sel + suffix);
+    vditor.focus();
+  }
+
+  function wrapBtn(name, tip, prefix, suffix, icon) {
+    return {
+      name: name, tip: tip, tipPosition: "s", icon: icon,
+      click: function () { wrapSelection(prefix, suffix); }
+    };
+  }
+
+  var ICON_SUP = '<svg viewBox="0 0 16 16"><text x="1" y="13" font-size="11" fill="currentColor">x</text><text x="9" y="7" font-size="8" fill="currentColor">2</text></svg>';
+  var ICON_SUB = '<svg viewBox="0 0 16 16"><text x="1" y="12" font-size="11" fill="currentColor">x</text><text x="9" y="14" font-size="8" fill="currentColor">2</text></svg>';
+  var ICON_MARK = '<svg viewBox="0 0 16 16"><rect x="1" y="4" width="14" height="9" rx="1.5" fill="#ffe58f"/><text x="3" y="11.5" font-size="9" fill="#333">ab</text></svg>';
+  var ICON_UNDERLINE = '<svg viewBox="0 0 16 16"><path d="M4 2v6a4 4 0 0 0 8 0V2M2 14h12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  var ICON_CHEVRON = '<svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  var ICON_STRIKE = '<svg viewBox="0 0 16 16"><text x="2" y="12" font-size="12" fill="currentColor">S</text><path d="M1 8h14" stroke="currentColor" stroke-width="1.5"/></svg>';
+  var ICON_IMAGE = '<svg viewBox="0 0 1024 1024" width="14" height="14"><path d="M896 128H128c-35.2 0-64 28.8-64 64v640c0 35.2 28.8 64 64 64h768c35.2 0 64-28.8 64-64V192c0-35.2-28.8-64-64-64z m-32 640H160v-108.8l160-160 128 128 288-288L864 608V768zM352 480c-53 0-96-43-96-96s43-96 96-96 96 43 96 96-43 96-96 96z" fill="currentColor"/></svg>';
+  var ICON_FULLSCREEN = '<svg viewBox="0 0 16 16"><path d="M1.5 1.5h4v1.8H3.3v2.2H1.5V1.5zm9 0h4v4h-1.8V3.3h-2.2V1.5zM1.5 10.5h1.8v2.2h2.2v1.8h-4v-4zm11.2 0h1.8v4h-4v-1.8h2.2v-2.2z" fill="currentColor"/></svg>';
+  var ICON_SIDEBAR = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/></svg>';
+
+  // ---------- Vditor ----------
+  var vditor = new Vditor("vditor", {
+    cdn: "./vditor",
+    mode: "ir",               // Typora 式即时渲染
+    lang: "zh_CN",
+    cache: { enable: false },
+    width: "100%",
+    height: "100%",           // 固定高度，否则容器随内容无限增高导致无法滚动
+    minHeight: 300,
+    i18n: window.__editorLocales.zh_CN,
+    theme: "classic",
+    placeholder: "开始书写你的 Markdown 文档…",
+    icon: "ant",
+    toolbar: [
+      {
+        name: "mdv-sidebar", tip: "展开侧边栏 · Ctrl+\\", tipPosition: "s", icon: ICON_SIDEBAR,
+        click: function () { if (bridge) { bridge.requestToggleSidebar(); } }
+      },
+      "emoji", "headings", "bold", "italic",
+      { name: "u-underline", tip: "下划线", tipPosition: "s", icon: ICON_UNDERLINE,
+        click: function () { window.applyUnderline(); } },
+      { name: "u-underline-style", tip: "下划线样式", tipPosition: "s", icon: ICON_CHEVRON,
+        click: function () { window.openUnderlineStyles(); } },
+      wrapBtn("u-strike", "删除线 ~~文本~~", "~~", "~~", ICON_STRIKE),
+      wrapBtn("u-sup", "上标 ^文本^", "^", "^", ICON_SUP),
+      wrapBtn("u-sub", "下标 ~文本~", "~", "~", ICON_SUB),
+      { name: "u-mark", tip: "高亮颜色", tipPosition: "s", icon: ICON_MARK,
+        click: function () { window.openHighlightColors(); } },
+      "|",
+      "list", "ordered-list", "check", "outdent", "indent", "|",
+      "quote", "line", "code", "inline-code", "|",
+      "link",
+      {
+        name: "insert-image",
+        tip: "插入图片",
+        tipPosition: "s",
+        icon: ICON_IMAGE,
+        click: function () { window.requestInsertImage(); }
+      },
+      "table",
+      { name: "mdv-review", tip: "显示 / 隐藏批注", tipPosition: "s",
+        icon: '<svg viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-9l-5 3v-3H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 8h10M7 12h7"/></svg>',
+        click: function () { window.showReview(document.getElementById("mdv-review-panel").hidden); } }, "|",
+      "undo", "redo", "|", "edit-mode", "preview",
+      {
+        name: "mdv-fullscreen",
+        tip: "全屏切换 <Ctrl+'>（可滚动）",
+        tipPosition: "s",
+        icon: ICON_FULLSCREEN,
+        click: function () { toggleFullscreen(); }
+      },
+      "outline"
+    ],
+    toolbarConfig: { pin: true },
+    counter: { enable: false },   // 使用左下角自定义计数条
+    upload: {
+      accept: "image/*",
+      max: 50 * 1024 * 1024,
+      handler: function (files) { return window.importDroppedImages(files); }
+    },
+    hint: {
+      emoji: {
+        "+1": "👍", "-1": "👎", "smile": "😄", "grin": "😁", "joy": "😂", "laughing": "😆",
+        "wink": "😉", "blush": "😊", "yum": "😋", "sunglasses": "😎", "heart_eyes": "😍", "kissing_heart": "😘",
+        "thinking": "🤔", "neutral_face": "😐", "confused": "😕", "cry": "😢", "sob": "😭", "angry": "😠",
+        "rage": "😡", "scream": "😱", "sleeping": "😴", "eyes": "👀", "wave": "👋", "clap": "👏",
+        "pray": "🙏", "muscle": "💪", "ok_hand": "👌", "fire": "🔥", "sparkles": "✨", "star": "⭐",
+        "heart": "❤️", "broken_heart": "💔", "tada": "🎉", "gift": "🎁", "rocket": "🚀", "bulb": "💡",
+        "warning": "⚠️", "checkered_flag": "🏁", "coffee": "☕", "dog": "🐶", "cat": "🐱", "party": "🥳"
+      }
+    },
+    outline: { enable: false, position: "left" },
+    preview: {
+      mode: "both",
+      math: {
+        engine: "KaTeX",
+        inlineDigit: false,
+        macros: {}
+      },
+      hljs: { style: "github", lineNumber: false },
+      markdown: { mark: true, footnotes: true, autoSpace: true, toc: true }
+    },
+    typewriterMode: false,
+    customWysiwygToolbar: function () {},
+    after: function () {
+      window.__editorReady = true;
+      vditor.vditor.lute.SetSup(true);
+      vditor.vditor.lute.SetSub(true);
+      window.installInlineFormats(vditor, function () {
+        updateCounter(); notifyDirty();
+        if (window.refreshFind) { window.refreshFind(); }
+      });
+      window.installLanguage(vditor);
+      window.installReviewFeatures(vditor, notifyDirty, renderSelectionCounter);
+      window.installWritingFeatures(vditor, function () { return bridge; }, function () {
+        scanImages(); updateCounter(); notifyDirty();
+      });
+      imgObserver.observe(document.getElementById("vditor"),
+        { subtree: true, childList: true });
+      onBridgeReady(function () {
+        bridge.editorReady();
+      });
+      updateCounter();
+      applyToolbarTooltips();
+      bindToolbarTooltips();
+      document.querySelector("#vditor .vditor-toolbar").addEventListener("click", function () {
+        setTimeout(updateCounter, 0);
+      });
+    },
+    input: function () {
+      notifyDirty();
+      updateCounter();
+      if (window.refreshFind) { window.refreshFind(); }
+    },
+    blur: function () {}
+  });
+
+  function applyToolbarTooltips() {
+    var tips = {
+      "mdv-sidebar": "展开侧边栏 · Ctrl+\\", "emoji": "表情", "headings": "标题", "bold": "加粗", "italic": "斜体",
+      "u-underline": "下划线", "u-underline-style": "下划线样式", "u-strike": "删除线 ~~文本~~", "u-sup": "上标 ^文本^",
+      "u-sub": "下标 ~文本~", "u-mark": "高亮颜色", "list": "无序列表",
+      "ordered-list": "有序列表", "check": "任务列表", "outdent": "减少缩进", "indent": "增加缩进",
+      "quote": "引用", "line": "分隔线", "code": "代码块", "inline-code": "行内代码",
+      "link": "插入链接", "insert-image": "插入图片", "table": "插入表格", "undo": "撤销",
+      "redo": "重做", "edit-mode": "切换编辑模式", "preview": "预览", "mdv-fullscreen": "全屏阅读/编辑（Esc 退出）",
+      "mdv-review": "显示 / 隐藏批注", "outline": "大纲"
+    };
+    document.querySelectorAll("#vditor .vditor-toolbar__item > [data-type]").forEach(function (element) {
+      var tip = tips[element.getAttribute("data-type")] || element.getAttribute("aria-label");
+      if (!tip) { return; }
+      element.setAttribute("data-mdv-tip", tip);
+      element.setAttribute("aria-label", tip);
+      element.classList.add("vditor-tooltipped");
+      if (!/(^|\s)vditor-tooltipped__(n|ne|nw|s|se|sw|e|w)(\s|$)/.test(element.className)) {
+        element.classList.add("vditor-tooltipped__s");
+      }
+    });
+  }
+
+  function bindToolbarTooltips() {
+    var toolbar = document.querySelector("#vditor .vditor-toolbar");
+    var tooltip = document.getElementById("mdv-toolbar-tooltip");
+    var current = null;
+    if (!toolbar || !tooltip) { return; }
+
+    function targetFor(event) {
+      return event.target && event.target.closest ? event.target.closest("[data-mdv-tip]") : null;
+    }
+    function place(target) {
+      var gap = 9;
+      var targetRect = target.getBoundingClientRect();
+      var rect = tooltip.getBoundingClientRect();
+      var left = Math.max(6, Math.min(targetRect.left + targetRect.width / 2 - rect.width / 2,
+        window.innerWidth - rect.width - 6));
+      var top = targetRect.bottom + gap;
+      tooltip.classList.remove("mdv-toolbar-tooltip--above");
+      if (top + rect.height > window.innerHeight - 6) {
+        top = targetRect.top - rect.height - gap;
+        tooltip.classList.add("mdv-toolbar-tooltip--above");
+      }
+      tooltip.style.left = left + "px";
+      tooltip.style.top = top + "px";
+    }
+    function hide() {
+      current = null;
+      tooltip.style.display = "none";
+    }
+
+    toolbar.addEventListener("pointerover", function (event) {
+      var target = targetFor(event);
+      if (!target || target === current) { return; }
+      current = target;
+      tooltip.textContent = target.getAttribute("data-mdv-tip");
+      tooltip.style.display = "block";
+      place(target);
+    });
+    toolbar.addEventListener("pointerout", function (event) {
+      var next = event.relatedTarget && event.relatedTarget.closest
+        ? event.relatedTarget.closest("[data-mdv-tip]") : null;
+      if (next !== current) { hide(); }
+    });
+    toolbar.addEventListener("focusin", function (event) {
+      var target = targetFor(event);
+      if (!target) { return; }
+      current = target;
+      tooltip.textContent = target.getAttribute("data-mdv-tip");
+      tooltip.style.display = "block";
+      place(target);
+    });
+    toolbar.addEventListener("focusout", hide);
+    document.addEventListener("scroll", hide, true);
+    window.addEventListener("blur", hide);
+  }
+
+  // ---------- 供 Python 调用的接口 ----------
+  window.setAppearance = function (theme, sidebarVisible) {
+    document.documentElement.setAttribute("data-sidebar-visible", String(sidebarVisible));
+    if (document.documentElement.getAttribute("data-theme") !== theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      vditor.setTheme(theme === "dark" ? "dark" : "classic", "light", "github");
+    }
+  };
+
+  window.setContent = function (md) {
+    loadingContent = true;
+    try { vditor.setValue(mdToEditor(window.loadReviewDocument(md)), true); window.reviewDocumentLoaded(); }
+    finally { loadingContent = false; }
+    scanImages();
+    updateCounter();
+    // setValue 会触发 input，复位脏标记由 Python 随后调 markClean
+  };
+
+  // Python 告知当前 md 文件所在目录（正斜杠路径，未编码）
+  window.setMdDir = function (dir) {
+    document.querySelectorAll('#vditor img[data-osrc]').forEach(function (img) {
+      img.setAttribute('src', img.getAttribute('data-osrc'));
+      img.removeAttribute('data-osrc');
+    });
+    if (!dir) { window.__mdDirUrl = null; return; }
+    var parts = dir.replace(/\\/g, "/").split("/");
+    // 首段是盘符（如 C:），冒号不能编码
+    var enc = parts.map(function (seg, i) {
+      return i === 0 ? seg : encodeURIComponent(seg);
+    }).join("/");
+    window.__mdDirUrl = "file:///" + enc + "/";
+    scanImages();
+  };
+
+  window.markClean = function () {
+    if (bridge) { bridge.notifyClean(); }
+  };
+
+  // 供自动化测试使用（模拟编辑：触发脏标记与计数更新）
+  window.__getEditorValue = function () { return vditor.getValue(); };
+  window.__setEditorValue = function (v) {
+    vditor.setValue(v);
+    scanImages();
+    updateCounter();
+    notifyDirty();
+  };
+
+  function currentMarkdown() {
+    return withRestoredImgSrc(function () {
+      return window.serializeReviewDocument(editorToMd(vditor.getValue()));
+    });
+  }
+  window.currentMarkdown = currentMarkdown;
+  // Only pristine reading pages are discarded by Python; edited pages keep undo.
+  window.readingStateForCache = function () {
+    if (Array.from(document.querySelectorAll("#mdv-find-panel, #mdv-highlight-panel, #mdv-underline-panel"))
+        .some(function (panel) { return !panel.hidden; }) || statsBackdrop.classList.contains("is-open") || !document.getElementById("mdv-review-composer").hidden) { return null; }
+    function active(type) {
+      var control = document.querySelector('#vditor [data-type="' + type + '"]');
+      return !!control && control.classList.contains("vditor-menu--current");
+    }
+    return {scroll: window.getEditorPosition(), mode: vditor.getCurrentMode(),
+            outline: active("outline"), preview: active("preview"), review: !document.getElementById("mdv-review-panel").hidden};
+  };
+  window.restoreReadingState = function (state) {
+    if (!state) { return; }
+    var mode = document.querySelector('#vditor [data-mode="' + state.mode + '"]');
+    if (mode && vditor.getCurrentMode() !== state.mode) { mode.click(); }
+    ["outline", "preview"].forEach(function (type) {
+      var control = document.querySelector('#vditor [data-type="' + type + '"]');
+      if (control && !!state[type] !== control.classList.contains("vditor-menu--current")) { control.click(); }
+    });
+    window.showReview(!!state.review);
+    window.restorePosition(state.scroll);
+    updateCounter();
+  };
+  window.notifyEdited = notifyDirty;
+  window.markCleanIfUnchanged = function (saved) {
+    if (currentMarkdown() === saved) { window.markClean(); }
+    else { notifyDirty(); }
+  };
+  window.applySavedContent = function (saved) {
+    var scroll = window.getEditorPosition();
+    vditor.setValue(mdToEditor(window.loadReviewDocument(saved)));
+    window.reviewDocumentLoaded();
+    scanImages();
+    updateCounter();
+    window.restorePosition(scroll);
+    window.markClean();
+  };
+
+  // Python 选完图片后回调：在光标处插入相对路径图片
+  window.insertImageAtCursor = function (relPath, alt) {
+    var p = (relPath || "").replace(/\\/g, "/");
+    if (p.indexOf(" ") >= 0) { p = "<" + p + ">"; }
+    vditor.insertValue("![" + (alt || "图片") + "](" + p + ")\n");
+    scanImages();
+    notifyDirty();
+    updateCounter();
+  };
+
+  window.requestSave = function () {
+    if (bridge) { bridge.requestSave(currentMarkdown()); }
+  };
+
+  window.requestSaveAs = function () {
+    if (bridge) { bridge.requestSaveAs(currentMarkdown()); }
+  };
+
+  window.requestExport = function () {
+    if (bridge) { bridge.requestExport(currentMarkdown()); }
+  };
+
+  window.requestOpen = function () {
+    if (bridge) { bridge.requestOpen(); }
+  };
+
+  window.requestInsertImage = function () {
+    if (bridge) { bridge.requestInsertImage(); }
+  };
+
+  // ---------- 超链接：Ctrl+左键 在系统浏览器中打开 ----------
+  document.addEventListener("click", function (e) {
+    if (!(e.ctrlKey || e.metaKey)) { return; }
+    var a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+    if (!a) { return; }
+    var href = a.getAttribute("href");
+    if (!href || href.charAt(0) === "#") { return; }
+    e.preventDefault();
+    e.stopPropagation();
+    if (bridge) { bridge.openUrl(href); }
+  }, true);
+
+  // ---------- 快捷键 ----------
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && (!document.getElementById("mdv-highlight-panel").hidden ||
+        !document.getElementById("mdv-underline-panel").hidden)) { return; }
+    if (e.key === "Escape" && statsBackdrop.classList.contains("is-open")) {
+      hideStatsDialog();
+      return;
+    }
+    if (e.key === "Escape" &&
+        document.getElementById("mdv-find-panel").hidden &&
+        document.getElementById("vditor").classList.contains("mdv-fullscreen")) {
+      toggleFullscreen();
+      return;
+    }
+    if (!(e.ctrlKey || e.metaKey)) { return; }
+    var k = e.key.toLowerCase();
+    if (k === "s" && e.shiftKey) { e.preventDefault(); window.requestSaveAs(); }
+    else if (k === "s") { e.preventDefault(); window.requestSave(); }
+    else if (k === "o") { e.preventDefault(); window.requestOpen(); }
+    else if (k === "e") { e.preventDefault(); window.requestExport(); }
+    else if (e.key === "'") { e.preventDefault(); toggleFullscreen(); }
+  }, true);
+})();
+</script>
+</body>
+</html>
