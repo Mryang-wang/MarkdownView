@@ -76,7 +76,9 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
       var codeBlock = element.closest('[data-type="code-block"], [data-type="math-block"]');
       if (codeBlock) { codeBlock.classList.add("vditor-ir__node--expand"); }
       var container = scrollContainer(), rect = current.getBoundingClientRect();
-      container.scrollTop += rect.top - container.getBoundingClientRect().top - container.clientHeight / 2;
+      var viewport = container.getBoundingClientRect();
+      var scale = viewport.height / container.offsetHeight || 1;
+      container.scrollTop += (rect.top - viewport.top) / scale - container.clientHeight / 2;
     }
   }
 

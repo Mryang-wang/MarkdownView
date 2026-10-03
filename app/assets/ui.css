@@ -114,6 +114,13 @@ html:not([data-sidebar-visible="false"]) #vditor .vditor-toolbar__item:has([data
 #vditor .vditor-toolbar__divider { height: 16px; border-color: var(--line); margin: 0 5px; }
 #vditor .vditor-content { overflow: hidden; min-height: 0; background: var(--canvas); }
 #vditor .vditor-ir, #vditor .vditor-wysiwyg, #vditor .vditor-sv { overflow-y: auto !important; background: var(--canvas); color: var(--text); }
+/* Scale document panes, leaving toolbar and surrounding UI at their normal size. */
+#vditor .vditor-ir, #vditor .vditor-wysiwyg, #vditor .vditor-sv,
+#vditor .vditor-preview { zoom: var(--document-zoom, 1); }
+@media print {
+  #vditor .vditor-ir, #vditor .vditor-wysiwyg, #vditor .vditor-sv,
+  #vditor .vditor-preview { zoom: 1; }
+}
 #vditor .vditor-ir > pre, #vditor .vditor-wysiwyg > pre, #vditor .vditor-sv > pre { width: 100%; min-height: 100%; padding: 48px max(40px, calc((100% - 780px) / 2)) 96px !important; }
 #vditor .vditor-reset { color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 15px; line-height: 1.9; letter-spacing: .1px; }
 #vditor .vditor-reset p { margin: 0 0 1.2em; }

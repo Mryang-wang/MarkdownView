@@ -78,6 +78,7 @@ def run():
             print('PASS - Batch open initializes only the selected editor and retains every path', flush=True)
 
             select(first)
+            window.set_page_zoom(1.2)
             evaluate(first, 'document.querySelector("[data-mode=sv]").click();document.querySelector("[data-type=outline]").click();window.restorePosition(650);return true;')
             pump(.4)
             first_state = evaluate(first, 'return window.readingStateForCache();')
@@ -111,6 +112,8 @@ def run():
             wait(lambda: first.document_status == first_status)
             assert window.editor_status.counter.text() == '字数 %d' % first_status[0]
             assert window.editor_status.mode.text() == '源代码'
+            assert first.zoom_factor == 1.2 and window.editor_status.zoom.text() == '120%'
+            assert evaluate(first, 'return getComputedStyle(document.querySelector(".vditor-sv")).zoom;') == '1.2'
             print('PASS - Cached source, editing mode, outline and scroll restore without rereading changed files', flush=True)
 
             select(edited)

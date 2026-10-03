@@ -12,6 +12,9 @@
 | --- | --- |
 | 三种编辑模式 | 即时渲染（IR）、所见即所得和源代码模式，支持大纲与预览 |
 | 多文档工作区 | 侧栏切换、关闭、拖拽排序，拖出文档可分离为独立窗口 |
+| 项目文件夹 | 按需加载文件树，打开 Markdown / TXT，自动跟踪文件变化并恢复项目 |
+| 正文缩放 | 每份文档独立保持 50%–300% 显示比例，工具栏与面板保持固定大小 |
+| 文件读取保护 | 不支持、编码无效或读取失败的文件显示只读提示，修复后可重试 |
 | 数学与表格 | KaTeX 渲染 LaTeX 公式；支持可视化表格编辑 |
 | 图片插入 | 选择图片、粘贴截图、拖入多张图片；保存时管理相对路径资源 |
 | 丰富格式 | 多种下划线、上下标、删除线，以及预设或自定义颜色高亮 |
@@ -72,6 +75,7 @@ winget install --id JohnMacFarlane.Pandoc --exact
 | --- | --- |
 | `Ctrl+T` | 新建文档 |
 | `Ctrl+O` | 打开文档，可多选 |
+| `Ctrl+Shift+O` | 打开项目文件夹 |
 | `Ctrl+S` / `Ctrl+Shift+S` | 保存 / 另存为 |
 | `Ctrl+W` | 关闭当前文档 |
 | `Ctrl+F` / `Ctrl+H` | 查找 / 替换 |
@@ -82,6 +86,9 @@ winget install --id JohnMacFarlane.Pandoc --exact
 | `Ctrl+Shift+E` | 导出 PDF |
 | `Ctrl+\` | 显示或隐藏侧栏 |
 | `Ctrl+Shift+L` | 切换深浅主题 |
+| `Ctrl++` / `Ctrl+=`、`Ctrl+-` | 放大 / 缩小页面显示比例 |
+| `Ctrl+0` | 恢复页面显示比例为 100% |
+| `Ctrl+鼠标滚轮` | 调整页面显示比例 |
 | `Ctrl+'` | 切换全屏，`Esc` 退出 |
 | `Ctrl+左键` | 打开正文中的链接 |
 
@@ -112,13 +119,13 @@ DOCX 导出通过 Pandoc 将公式转换为 Word 原生 OMML 对象，将表格�
 
 ## 构建 Windows 安装包
 
-安装脚本当前版本为 **1.1.3**，目标为 **Windows 10 1809 或更新版本的 x64 兼容环境**。
+安装脚本当前版本为 **1.1.4**，目标为 **Windows 10 1809 或更新版本的 x64 兼容环境**。
 
 先完成上述依赖与 Pandoc 安装，再安装 **Inno Setup 6**。在项目根目录执行：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --distpath dist/release-1.1.3 --workpath build/release-1.1.3 MarkdownView.spec
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --distpath dist/release-1.1.4 --workpath build/release-1.1.4 MarkdownView.spec
 
 # 如安装位置不同，请替换为实际的 ISCC.exe 路径
 & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer/MarkdownView.iss
@@ -139,6 +146,8 @@ MarkdownView/
 │   ├── exporter.py            # Pandoc 调用与 DOCX 预处理
 │   ├── workspace_store.py     # 工作区、会话与草稿管理
 │   ├── single_instance.py     # 单实例通信
+│   ├── project_explorer.py    # 项目文件树与磁盘变化跟踪
+│   ├── file_notice.py         # 无法读取文件时的只读提示
 │   ├── i18n.py                # 界面翻译
 │   └── assets/                # HTML、CSS、脚本与本地 Vditor 资源
 ├── docs/                      # 功能说明、性能记录与界面截图

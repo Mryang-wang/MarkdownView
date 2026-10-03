@@ -56,7 +56,7 @@ def run():
             if window.sidebar.isVisible():
                 theme = window._theme_button
                 theme_center = theme.mapTo(window, theme.rect().center()).y()
-                for widget in (footer.counter, footer.mode, footer.format):
+                for widget in (footer.counter, footer.mode, footer.format, footer.zoom):
                     if widget.isVisible():
                         center = widget.mapTo(window, widget.rect().center()).y()
                         assert abs(center - theme_center) <= 1, (center, theme_center)

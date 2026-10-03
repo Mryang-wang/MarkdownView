@@ -15,7 +15,7 @@ from urllib.parse import quote, unquote
 from PySide6.QtCore import (
     QByteArray, QEvent, QEasingCurve, QParallelAnimationGroup, QPoint, QPropertyAnimation,
     QRect, QSettings, QSize, QTimer, QUrl, Qt, Signal, QBuffer, QIODevice)
-from PySide6.QtGui import QAction, QDesktopServices, QGuiApplication, QIcon, QImageReader, QKeySequence, QPainter, QPixmap, QRegion
+from PySide6.QtGui import QAction, QColor, QDesktopServices, QGuiApplication, QIcon, QImageReader, QKeySequence, QPainter, QPixmap, QRegion
 from PySide6.QtSvg import QSvgRenderer
 from shiboken6 import isValid
 from PySide6.QtWebChannel import QWebChannel
@@ -24,7 +24,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QMainWindow, QMenu, QMessageBox, QTabBar, QTabWidget,
     QAbstractItemView, QSizePolicy, QToolButton, QToolTip, QHBoxLayout, QLabel, QListWidget,
-    QListWidgetItem, QVBoxLayout, QWidget)
+    QListWidgetItem, QSplitter, QVBoxLayout, QWidget)
 
 from .bridge import Bridge
 from .exporter import ExportError, export_docx, find_pandoc, pandoc_version
@@ -32,6 +32,8 @@ from .workspace_store import WorkspaceStore, atomic_write
 from .recovery_dialog import RecoveryDialog
 from .unsaved_dialog import UnsavedChangesDialog
 from .export_dialog import ExportSuccessDialog
+from .project_explorer import ProjectExplorer, TEXT_EXTENSIONS
+from .file_notice import FileNotice
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 INDEX_PATH = os.path.join(ASSETS_DIR, "index.html")
@@ -55,6 +57,27 @@ class _Page(QWebEnginePage):
 
 
 class _EditorView(QWebEngineView):
+    def childEvent(self, event):
+        super().childEvent(event)
+        # WebEngine can attach its rendering widget after the view is shown.
+        # Keep the native notice above that late-arriving child as well.
+        if (event.added() or event.polished()) and getattr(self, "file_notice", None) is not None:
+            QTimer.singleShot(0, self, self._place_file_notice)
+
+    def _place_file_notice(self):
+        notice = getattr(self, "file_notice", None)
+        if notice is not None and not notice.isHidden():
+            notice.setGeometry(self.rect())
+            notice.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_file_notice()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._place_file_notice()
+
     def contextMenuEvent(self, event):
         menu = self.createStandardContextMenu()
         translate_context_menu(menu)
@@ -84,6 +107,30 @@ class _EditorView(QWebEngineView):
             show_menu(False)
 
 
+class _Workspace(QWidget):
+    """Extend each surface into the reserved window resize edges."""
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.sidebar = None
+        self.setAttribute(Qt.WidgetAttribute.WA_OpaquePaintEvent)
+        self.set_colors("#ffffff", "#f5f5f2", "#e7e7e2")
+
+    def set_colors(self, canvas, panel, border):
+        self.canvas_color = QColor(canvas)
+        self.panel_color = QColor(panel)
+        self.border_color = QColor(border)
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self.canvas_color)
+        if self.sidebar is not None and not self.sidebar.isHidden():
+            boundary = self.sidebar.geometry().right()
+            painter.fillRect(0, 0, boundary, self.height(), self.panel_color)
+            painter.fillRect(boundary, 0, 1, self.height(), self.border_color)
+
+
 class _EditorStatusBar(QWidget):
     """Keep the footer in Qt's layout, independent of WebEngine resize frames."""
 
@@ -92,6 +139,7 @@ class _EditorStatusBar(QWidget):
         self.setObjectName("editorStatusBar")
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
         self.setFixedHeight(WORKSPACE_FOOTER_HEIGHT)
+        self._unavailable = False
         self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         row = QHBoxLayout(self)
         row.setContentsMargins(20, 0, 20, 0)
@@ -107,12 +155,26 @@ class _EditorStatusBar(QWidget):
         self.divider = QLabel("/", self)
         self.mode = QLabel(self)
         self.format = QLabel("UTF-8   ·   Markdown", self)
+        self.zoom = QToolButton(self)
+        self.zoom.setObjectName("pageZoom")
+        self.zoom.setFocusPolicy(Qt.FocusPolicy.TabFocus)
+        self.zoom.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.zoom.setFixedHeight(26)
+        self.zoom.setMinimumWidth(46)
         row.addWidget(self.counter)
         row.addWidget(self.divider)
         row.addWidget(self.mode)
         row.addStretch(1)
         row.addWidget(self.format)
+        row.addWidget(self.zoom)
         self.set_document_status((0, -1, "ir"))
+        self.set_zoom(1.0)
+
+    def set_zoom(self, factor):
+        percent = round(factor * 100)
+        self.zoom.setText(f"{percent}%")
+        self.zoom.setAccessibleName(t(f"页面缩放：{percent}%"))
+        self.zoom.setToolTip(t(f"页面缩放：{percent}% · 点击恢复 100%（Ctrl+0）"))
 
     def set_document_status(self, status):
         total, selected, mode = status
@@ -123,9 +185,20 @@ class _EditorStatusBar(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self.format.setVisible(self.width() >= 640)
-        self.divider.setVisible(self.width() >= 420)
-        self.mode.setVisible(self.width() >= 420)
+        self._update_visibility()
+
+    def set_unavailable(self, unavailable):
+        self._unavailable = unavailable
+        if unavailable:
+            self.mode.setText(t("无法预览"))
+        self._update_visibility()
+
+    def _update_visibility(self):
+        self.counter.setVisible(not self._unavailable)
+        self.zoom.setVisible(not self._unavailable)
+        self.format.setVisible(not self._unavailable and self.width() >= 640)
+        self.divider.setVisible(not self._unavailable and self.width() >= 420)
+        self.mode.setVisible(self._unavailable or self.width() >= 420)
 
 
 class _DetachableTabBar(QTabBar):
@@ -323,13 +396,19 @@ class EditorTab:
         self.pending_commands = []
         self.printing = False
         self.document_status = (0, -1, "ir")
+        self.file_error = None
+        self.file_error_detail = ""
+        self.file_notice = None
 
         self.view = _EditorView()
+        self.zoom_factor = 1.0
+        self.zoom_wheel_delta = 0
         self.backup_timer = QTimer(self.view)
         self.backup_timer.setSingleShot(True)
         self.backup_timer.setInterval(1000)
         self.backup_timer.timeout.connect(lambda: self.window._checkpoint_tab(self))
         self.view.setPage(_Page(self.view))
+        self.view.page().setBackgroundColor(QColor("#20201e" if window._theme == "dark" else "#ffffff"))
         settings = self.view.settings()
         settings.setAttribute(
             QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
@@ -344,6 +423,8 @@ class EditorTab:
         self.view.page().setWebChannel(self.channel)
 
     def ensure_loaded(self):
+        if self.file_error:
+            return
         if self.parked:
             self.parked = False
             self.initialized = True
@@ -353,11 +434,37 @@ class EditorTab:
             self.view.load(QUrl.fromLocalFile(INDEX_PATH))
 
     def js(self, code):
+        if self.file_error:
+            return
         if not self.ready:
             self.pending_commands.append(code)
             self.ensure_loaded()
         else:
             self.view.page().runJavaScript(code)
+
+    def show_file_error(self, reason, detail=""):
+        self.file_error = reason
+        self.file_error_detail = detail
+        self.ready = False
+        self.pending_file = None
+        self.pending_commands.clear()
+        self.backup_timer.stop()
+        if self.initialized:
+            # Failed reads do not need to keep an empty editor and its scripts alive.
+            self.view.setUrl(QUrl("about:blank"))
+            self.initialized = False
+        if self.file_notice is None:
+            self.file_notice = FileNotice(self.view)
+            self.view.file_notice = self.file_notice
+            self.file_notice.retryRequested.connect(lambda: self.window.retry_file(self))
+            self.file_notice.closeRequested.connect(
+                lambda: self.window.close_tab(self.window.tabs.indexOf(self.view)))
+        self.file_notice.show()
+        self.view._place_file_notice()
+        self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.window._sync_document_ui(self)
+        if self.window.current_tab() is self:
+            self.window._refresh_editor_status()
 
     def display_name(self):
         if self.filepath or self.pending_file:
@@ -452,6 +559,10 @@ class MainWindow(QMainWindow):
                     self.tabs.setCurrentWidget(active_tab.view)
             if not self._tab_list:
                 self.new_tab()
+        if restore_session and QSettings().value("files/restoreSession", True, type=bool):
+            folder = QSettings().value("files/projectFolder", "", type=str)
+            if folder and os.path.isdir(folder):
+                self.open_project_folder(folder)
         self._restoring = False
         if restore_session and not self.store.recovery_offered:
             self.store.recovery_offered = True
@@ -476,7 +587,7 @@ class MainWindow(QMainWindow):
 
     def _loaded_tabs(self):
         return [tab for window in self.store.windows if not window._closed
-                for tab in window._tab_list if tab.initialized and not tab.parked]
+                for tab in window._tab_list if tab.initialized and not tab.parked and not tab.file_error]
 
     def _trim_reading_editors(self):
         if self._closed:
@@ -699,6 +810,8 @@ class MainWindow(QMainWindow):
         """与编辑区一致的细线图标；不依赖系统图标主题。"""
         paths = {
             "new": '<path d="M12 5v14M5 12h14"/>',
+            "project": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M8 13h8M12 9v8"/>',
+            "collapse": '<path d="M8 3h11a2 2 0 0 1 2 2v11M5 7h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2ZM7 14h6"/>',
             "close": '<path d="m6 6 12 12M18 6 6 18"/>',
             "folder": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
             "file": '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
@@ -718,16 +831,17 @@ class MainWindow(QMainWindow):
         return QIcon(pixmap)
 
     def _build_workspace(self):
-        workspace = QWidget(self)
+        workspace = _Workspace(self)
         workspace.setMouseTracking(True)
         layout = QHBoxLayout(workspace)
         layout.setContentsMargins(RESIZE_BORDER, 0, RESIZE_BORDER, RESIZE_BORDER)
         layout.setSpacing(0)
         self.sidebar = QWidget(workspace)
+        workspace.sidebar = self.sidebar
         self.sidebar.setObjectName("workspaceSidebar")
         self.sidebar.setFixedWidth(216)
         side = QVBoxLayout(self.sidebar)
-        side.setContentsMargins(14, 22, 14, 0)
+        side.setContentsMargins(14, 16, 14, 0)
         side.setSpacing(6)
 
         brand = QLabel("MarkdownView")
@@ -747,11 +861,12 @@ class MainWindow(QMainWindow):
             lambda: self._sidebar_action.setChecked(False))
         brand_row.addWidget(self._sidebar_collapse_button)
         side.addLayout(brand_row)
-        side.addSpacing(20)
+        side.addSpacing(12)
         self._sidebar_buttons = {}
-        for key, text, callback in (
-                ("new", t("新建文档"), lambda: self.new_tab()),
-                ("folder", t("打开文件"), self.open_file_dialog)):
+        for key, text, callback, tip in (
+                ("new", t("新建文档"), lambda: self.new_tab(), t("新建文档 · Ctrl+T")),
+                ("folder", t("打开文件"), self.open_file_dialog, t("打开文件 · Ctrl+O")),
+                ("project", t("打开文件夹"), self.open_project_dialog, t("打开项目文件夹 · Ctrl+Shift+O"))):
             button = QToolButton(self.sidebar)
             button.setObjectName("sidebarAction")
             button.setText(text)
@@ -760,10 +875,18 @@ class MainWindow(QMainWindow):
             button.setFixedHeight(36)
             button.setMinimumWidth(188)
             button.clicked.connect(callback)
-            button.setToolTip(t("新建文档 · Ctrl+T") if key == "new" else t("打开文件 · Ctrl+O"))
+            button.setToolTip(tip)
             self._sidebar_buttons[key] = button
             side.addWidget(button)
-        side.addSpacing(22)
+        side.addSpacing(12)
+        self._sidebar_sections = QSplitter(Qt.Orientation.Vertical, self.sidebar)
+        self._sidebar_sections.setObjectName("sidebarSections")
+        self._sidebar_sections.setChildrenCollapsible(False)
+        self._sidebar_sections.setHandleWidth(6)
+        opened_section = QWidget(self._sidebar_sections)
+        opened_layout = QVBoxLayout(opened_section)
+        opened_layout.setContentsMargins(0, 0, 0, 0)
+        opened_layout.setSpacing(5)
         heading = QHBoxLayout()
         documents_label = QLabel(t("打开的文档"))
         documents_label.setObjectName("sectionCaption")
@@ -772,14 +895,14 @@ class MainWindow(QMainWindow):
         heading.addWidget(documents_label)
         heading.addStretch()
         heading.addWidget(self._document_count)
-        side.addLayout(heading)
-        side.addSpacing(5)
+        opened_layout.addLayout(heading)
         self.document_list = _DocumentList(self.sidebar)
         self.document_list.setObjectName("documentList")
         self.document_list.setIconSize(QSize(16, 16))
         self.document_list.setSpacing(3)
         self.document_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.document_list.setTextElideMode(Qt.TextElideMode.ElideMiddle)
+        self.document_list.setMinimumHeight(0)
         self.document_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.document_list.setDefaultDropAction(Qt.DropAction.MoveAction)
         self.document_list.documentMoved.connect(self.tab_bar.moveTab)
@@ -788,7 +911,16 @@ class MainWindow(QMainWindow):
         self.document_list.customContextMenuRequested.connect(self._show_document_context_menu)
         self.document_list.currentRowChanged.connect(
             lambda row: self.tabs.setCurrentIndex(row) if row >= 0 else None)
-        side.addWidget(self.document_list, 1)
+        opened_layout.addWidget(self.document_list, 1)
+        self._sidebar_sections.addWidget(opened_section)
+        self.project_explorer = ProjectExplorer(self._sidebar_sections)
+        self.project_explorer.fileRequested.connect(self.open_file)
+        self.project_explorer.closeRequested.connect(self.close_project_folder)
+        self._sidebar_sections.addWidget(self.project_explorer)
+        self._sidebar_sections.setStretchFactor(0, 0)
+        self._sidebar_sections.setStretchFactor(1, 1)
+        self.project_explorer.hide()
+        side.addWidget(self._sidebar_sections, 1)
 
         self._theme_button = QToolButton(self.sidebar)
         self._theme_button.setObjectName("themeAction")
@@ -805,6 +937,7 @@ class MainWindow(QMainWindow):
         self.editor_status = _EditorStatusBar(workspace)
         self.editor_status.counter.clicked.connect(
             lambda: self._cur_js("window.showStatsDialog()"))
+        self.editor_status.zoom.clicked.connect(lambda: self.set_page_zoom(1.0))
         editor_column.addWidget(self.editor_status)
         layout.addLayout(editor_column, 1)
         self.setCentralWidget(workspace)
@@ -818,6 +951,7 @@ class MainWindow(QMainWindow):
             ("#20201e", "#181816", "#efefeb", "#9b9b93", "#333330", "#30302c", "#393933")
             if dark else
             ("#ffffff", "#f5f5f2", "#272724", "#83837b", "#e7e7e2", "#ebebe6", "#e6e6df"))
+        self.centralWidget().set_colors(bg, panel, border)
         self.setStyleSheet(f"""
             QWidget {{ color: {text}; font-family: 'Segoe UI', 'Microsoft YaHei'; font-size: 12px; }}
             QMainWindow {{ background: {bg}; }}
@@ -850,10 +984,24 @@ class MainWindow(QMainWindow):
             QToolButton#themeAction {{ text-align: left; padding: 0 10px;
                 border-top: 1px solid transparent; font-size: 11px; }}
             QWidget#editorStatusBar {{ background: {bg}; border-top: 1px solid {border}; }}
-            QWidget#editorStatusBar QLabel, QToolButton#wordCounter {{ color: {muted}; font-size: 11px; }}
-            QToolButton#wordCounter {{ padding: 0 7px; border-radius: 5px; }}
-            QToolButton#wordCounter:hover {{ color: {text}; }}
+            QWidget#editorStatusBar QLabel, QWidget#editorStatusBar QToolButton {{ color: {muted}; font-size: 11px; }}
+            QWidget#editorStatusBar QToolButton {{ padding: 0 7px; border-radius: 5px; }}
+            QWidget#editorStatusBar QToolButton:hover {{ color: {text}; }}
+            QWidget#fileNotice {{ background: {bg}; }}
+            QScrollArea#fileNoticeScroll, QWidget#fileNoticeViewport, QWidget#fileNoticeContent {{ background: {bg}; }}
+            QLabel#fileNoticeTitle {{ color: {text}; font-size: 20px; font-weight: 600; }}
+            QLabel#fileNoticeName {{ color: {text}; font-size: 13px; }}
+            QLabel#fileNoticeDescription {{ color: {muted}; font-size: 12px; }}
             QToolButton#sidebarCollapse {{ color: {muted}; font-size: 10px; }}
+            QTreeView#projectTree {{ background: transparent; border: 0; outline: 0; }}
+            QTreeView#projectTree::item {{ height: 28px; padding: 0 3px; border-radius: 0; }}
+            QTreeView#projectTree::item:selected {{ background: {selected}; color: {text}; }}
+            QTreeView#projectTree::item:hover:!selected {{ background: {hover}; }}
+            QTreeView#projectTree QScrollBar::handle:vertical {{ border-color: {panel}; }}
+            QLabel#projectTitle {{ font-weight: 600; font-size: 11px; }}
+            QLabel#projectCount {{ color: {muted}; font-size: 10px; }}
+            QSplitter#sidebarSections::handle {{ background: transparent; }}
+            QSplitter#sidebarSections::handle:hover {{ background: {border}; }}
             QListWidget#documentList {{ background: transparent; border: 0; outline: 0; }}
             QListWidget#documentList::item {{ padding: 0; border-radius: 6px; color: transparent; }}
             QListWidget#documentList::item:selected {{ background: {selected}; color: transparent; }}
@@ -880,6 +1028,7 @@ class MainWindow(QMainWindow):
         self._theme_button.setText(t("浅色模式") if dark else t("深色模式"))
         self._theme_button.setToolTip(t("切换浅色主题") if dark else t("切换深色主题"))
         self._document_icon = self._ui_icon("file")
+        self.project_explorer.set_icons(self._ui_icon, muted)
         for i in range(self.document_list.count()):
             row = self.document_list.itemWidget(self.document_list.item(i))
             if row:
@@ -897,6 +1046,7 @@ class MainWindow(QMainWindow):
 
     def _toggle_sidebar(self, visible):
         self.sidebar.setVisible(visible)
+        self.centralWidget().update()
         QSettings().setValue("appearance/sidebarVisible", visible)
         for tab in self._tab_list:
             self._sync_document_ui(tab)
@@ -909,6 +1059,12 @@ class MainWindow(QMainWindow):
 
     def _sync_document_ui(self, tab):
         appearance = (self._theme, self._sidebar_action.isChecked(), language())
+        canvas = QColor("#20201e" if self._theme == "dark" else "#ffffff")
+        if tab.view.page().backgroundColor() != canvas:
+            tab.view.page().setBackgroundColor(canvas)
+        if tab.file_error:
+            tab.file_notice.refresh(tab.filepath, tab.file_error, tab.file_error_detail, self._ui_icon("file"))
+            return
         if tab.ready and tab.appearance != appearance:
             tab.appearance = appearance
             tab.js("window.setAppearance(%s, %s);" % (
@@ -1025,6 +1181,18 @@ class MainWindow(QMainWindow):
             self._update_resize_handles(visibility=True)
 
     def eventFilter(self, watched, event):
+        if (event.type() == QEvent.Type.Wheel
+                and event.modifiers() & Qt.KeyboardModifier.ControlModifier
+                and not self._closed):
+            tab = self.current_tab()
+            if tab and (watched is tab.view or watched is tab.view.focusProxy()):
+                tab.zoom_wheel_delta += event.angleDelta().y()
+                steps = int(tab.zoom_wheel_delta / 120)
+                tab.zoom_wheel_delta -= steps * 120
+                if steps:
+                    self.step_page_zoom(steps)
+                event.accept()
+                return True
         if (event.type() == QEvent.Type.KeyPress and isinstance(watched, QWidget)
                 and event.matches(QKeySequence.StandardKey.Paste)
                 and not self._closed):
@@ -1115,6 +1283,7 @@ class MainWindow(QMainWindow):
                 ctypes.sizeof(corner_preference))
 
     def _build_menus(self):
+        self._document_actions = []
         file_menu = self.menuBar().addMenu(t("文件(&F)"))
         self._file_menu = file_menu
 
@@ -1129,6 +1298,15 @@ class MainWindow(QMainWindow):
         act_open.setToolTip(t("打开一个或多个 Markdown 文件，在侧栏切换文档"))
         act_open.triggered.connect(self.open_file_dialog)
         file_menu.addAction(act_open)
+
+        act_folder = QAction(t("打开文件夹…"), self)
+        act_folder.setShortcut("Ctrl+Shift+O")
+        act_folder.setToolTip(t("在侧栏浏览整个项目文件夹"))
+        act_folder.triggered.connect(self.open_project_dialog)
+        file_menu.addAction(act_folder)
+        self.addAction(act_folder)
+        self._close_project_action = file_menu.addAction(t("关闭项目文件夹"), self.close_project_folder)
+        self._close_project_action.setEnabled(False)
 
         self._recent_menu = file_menu.addMenu(t("最近打开"))
         self._recent_menu.setToolTipsVisible(True)
@@ -1187,6 +1365,7 @@ class MainWindow(QMainWindow):
         act_export_pdf.triggered.connect(
             lambda: self.export_pdf(self.current_tab()))
         file_menu.addAction(act_export_pdf)
+        self._document_actions.extend((act_save, act_save_as, act_export, act_export_pdf))
 
         file_menu.addSeparator()
 
@@ -1203,6 +1382,7 @@ class MainWindow(QMainWindow):
                 (t("下一个匹配"), "F3", "window.findNext(1)"),
                 (t("上一个匹配"), "Shift+F3", "window.findNext(-1)")):
             action = edit_menu.addAction(label)
+            self._document_actions.append(action)
             action.setShortcut(shortcut)
             action.triggered.connect(lambda _checked=False, js=code: self._cur_js(js))
 
@@ -1211,6 +1391,7 @@ class MainWindow(QMainWindow):
                 (t("添加批注…"), "Ctrl+Alt+M", "window.addReviewComment()", t("为选中的正文添加批注")),
                 (t("删除当前批注"), None, "window.deleteReviewComment()", t("删除选中或定位到的批注"))):
             action = edit_menu.addAction(label)
+            self._document_actions.append(action)
             action.setToolTip(tip)
             if shortcut:
                 action.setShortcut(shortcut)
@@ -1230,10 +1411,23 @@ class MainWindow(QMainWindow):
         theme_action.triggered.connect(self.toggle_theme)
 
         view_menu.addSeparator()
+        for label, shortcuts, callback in (
+                ("放大页面", ["Ctrl++", "Ctrl+="], lambda: self.step_page_zoom(1)),
+                ("缩小页面", ["Ctrl+-"], lambda: self.step_page_zoom(-1)),
+                ("恢复为 100%", ["Ctrl+0"], lambda: self.set_page_zoom(1.0))):
+            action = view_menu.addAction(t(label))
+            self._document_actions.append(action)
+            action.setShortcuts([QKeySequence(shortcut) for shortcut in shortcuts])
+            action.triggered.connect(callback)
+            # Window shortcuts remain available when fullscreen hides the menu.
+            self.addAction(action)
+
+        view_menu.addSeparator()
         for label, code, tip in (
                 (t("显示批注"), "window.showReview(true)", t("显示批注面板与正文标记")),
                 (t("隐藏批注"), "window.showReview(false)", t("隐藏批注面板与正文标记"))):
             action = view_menu.addAction(label)
+            self._document_actions.append(action)
             action.setToolTip(tip)
             action.triggered.connect(lambda _checked=False, js=code: self._cur_js(js))
 
@@ -1266,6 +1460,7 @@ class MainWindow(QMainWindow):
             if window._closed:
                 continue
             translate_widgets(window)
+            window.project_explorer.retranslate()
             for value, action in window._language_actions.items():
                 action.setChecked(value == code)
             window._update_titles()
@@ -1288,6 +1483,9 @@ class MainWindow(QMainWindow):
         if filepath:
             tab.pending_file = os.path.abspath(filepath)
             tab.filepath = tab.pending_file
+            if os.path.splitext(tab.filepath)[1].lower() not in TEXT_EXTENSIONS:
+                tab.show_file_error("type")
+                self._remember_file(tab.filepath)
         self._tab_list.append(tab)
         index = self.tabs.addTab(tab.view, tab.display_name())
         self.tabs.setCurrentIndex(index)
@@ -1417,9 +1615,10 @@ class MainWindow(QMainWindow):
         self._schedule_session()
 
     def on_editor_ready(self, tab):
-        if self._closed or tab not in self._tab_list:
+        if self._closed or tab not in self._tab_list or tab.file_error:
             return
         tab.ready = True
+        tab.js("window.setDocumentZoom(%s);" % json.dumps(tab.zoom_factor))
         proxy = tab.view.focusProxy()
         if proxy:
             proxy.installEventFilter(self)
@@ -1427,6 +1626,8 @@ class MainWindow(QMainWindow):
             path = tab.pending_file
             tab.pending_file = None
             self.load_file(tab, path)
+            if tab.file_error:
+                return
         elif tab.pending_draft:
             record = tab.pending_draft
             tab.pending_draft = None
@@ -1447,7 +1648,7 @@ class MainWindow(QMainWindow):
 
     # ---------- JS 交互 ----------
     def update_editor_status(self, tab, total, selected, mode):
-        if self._closed or tab not in self._tab_list:
+        if self._closed or tab not in self._tab_list or tab.file_error:
             return
         tab.document_status = (total, selected, mode)
         if tab is self.current_tab():
@@ -1456,6 +1657,31 @@ class MainWindow(QMainWindow):
     def _refresh_editor_status(self):
         tab = self.current_tab()
         self.editor_status.set_document_status(tab.document_status if tab else (0, -1, "ir"))
+        self.editor_status.set_zoom(tab.zoom_factor if tab else 1.0)
+        unavailable = bool(tab and tab.file_error)
+        self.editor_status.set_unavailable(unavailable)
+        for action in self._document_actions:
+            action.setEnabled(not unavailable)
+
+    def _apply_document_zoom(self, tab, factor):
+        if tab.file_error:
+            return
+        tab.zoom_factor = max(0.5, min(3.0, factor))
+        if tab.ready:
+            tab.js("window.setDocumentZoom(%s);" % json.dumps(tab.zoom_factor))
+        self.editor_status.set_zoom(tab.zoom_factor)
+
+    def set_page_zoom(self, factor):
+        tab = self.current_tab()
+        if tab:
+            tab.zoom_wheel_delta = 0
+            self._apply_document_zoom(tab, factor)
+
+    def step_page_zoom(self, steps):
+        tab = self.current_tab()
+        if tab:
+            percent = round(tab.zoom_factor * 100) + steps * 10
+            self._apply_document_zoom(tab, percent / 100)
 
     def _cur_js(self, code):
         tab = self.current_tab()
@@ -1464,14 +1690,17 @@ class MainWindow(QMainWindow):
 
     # ---------- 文件操作 ----------
     def load_file(self, tab, path):
+        tab.filepath = os.path.abspath(path)
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                text = f.read().lstrip("\ufeff")
-        except UnicodeDecodeError:
             with open(path, "r", encoding="utf-8-sig") as f:
                 text = f.read()
+            if "\x00" in text:
+                raise UnicodeError("Binary content in a text document")
+        except UnicodeError as error:
+            tab.show_file_error("encoding", str(error))
+            return
         except OSError as e:
-            QMessageBox.warning(self, t("打开失败"), t(f"无法读取文件：\n{e}"))
+            tab.show_file_error("read", str(e))
             return
         tab.filepath = os.path.abspath(path)
         tab.file_stamp = self._file_stamp(tab.filepath)
@@ -1484,19 +1713,64 @@ class MainWindow(QMainWindow):
         tab.js("window.restorePosition(%s)" % json.dumps(tab.scroll_position))
         self._schedule_session()
 
+    def retry_file(self, tab):
+        if self._closed or tab not in self._tab_list or tab.file_error not in ("read", "encoding"):
+            return
+        tab.file_error = None
+        tab.file_error_detail = ""
+        tab.file_notice.hide()
+        tab.view.setContextMenuPolicy(Qt.ContextMenuPolicy.DefaultContextMenu)
+        tab.pending_file = tab.filepath
+        tab.initialized = False
+        tab.appearance = None
+        tab.ensure_loaded()
+        if tab is self.current_tab():
+            self._refresh_editor_status()
+
     def open_file_dialog(self):
         paths, _ = QFileDialog.getOpenFileNames(
-            self, t("打开 Markdown 文件"), "",
+            self, t("打开 Markdown 文件"), self.project_explorer.root_path,
             t("Markdown 文件 (*.md *.markdown);;所有文件 (*)"))
         for path in paths:
             self.open_file(path)
 
+    def open_project_dialog(self):
+        folder = QFileDialog.getExistingDirectory(
+            self, t("打开项目文件夹"), self.project_explorer.root_path or
+            QSettings().value("files/projectFolder", "", type=str))
+        if folder:
+            self.open_project_folder(folder)
+
+    def open_project_folder(self, path):
+        if not os.path.isdir(path):
+            QMessageBox.warning(self, t("打开失败"), t("文件夹不存在或无法访问：\n{0}").format(path))
+            return
+        first_open = not self.project_explorer.root_path
+        self.project_explorer.set_folder(path)
+        self.project_explorer.set_icons(self._ui_icon, "#9b9b93" if self._theme == "dark" else "#83837b")
+        self._close_project_action.setEnabled(True)
+        self._sidebar_action.setChecked(True)
+        if first_open:
+            height = self._sidebar_sections.height()
+            self._sidebar_sections.setSizes([min(150, height // 3), max(0, height * 2 // 3)])
+        QSettings().setValue("files/projectFolder", self.project_explorer.root_path)
+        tab = self.current_tab()
+        self.project_explorer.reveal_file(tab.filepath if tab else None)
+
+    def close_project_folder(self):
+        self.project_explorer.set_folder(None)
+        self._close_project_action.setEnabled(False)
+        QSettings().remove("files/projectFolder")
+
     def save_file(self, tab, content, save_as=False, automatic=False):
+        if tab.file_error:
+            return
         path = tab.filepath
         if save_as or not path:
             path, _ = QFileDialog.getSaveFileName(
                 self, t("保存 Markdown 文件"),
-                path or tab.recovery_origin or "", t("Markdown 文件 (*.md);;所有文件 (*)"))
+                path or tab.recovery_origin or self.project_explorer.root_path,
+                t("Markdown 文件 (*.md);;所有文件 (*)"))
             if not path:
                 tab.close_after_save = False
                 tab.quit_after_save = False
@@ -1539,6 +1813,8 @@ class MainWindow(QMainWindow):
             self.close()
 
     def export_docx(self, tab, content):
+        if tab.file_error:
+            return
         default = self._export_default_path(tab, "docx")
         path, _ = QFileDialog.getSaveFileName(
             self, t("导出为 DOCX"), default, t("Word 文档 (*.docx)"))
@@ -1556,7 +1832,7 @@ class MainWindow(QMainWindow):
         ExportSuccessDialog.show_result(self, path, warnings)
 
     def export_pdf(self, tab):
-        if not tab:
+        if not tab or tab.file_error:
             return
         if getattr(self, "_pdf_export_in_progress", False):
             self.statusBar().showMessage(t("PDF 正在导出，请稍候…"), 3000)
@@ -1576,6 +1852,9 @@ class MainWindow(QMainWindow):
 
     def _export_pdf_to_path(self, tab, path, finished):
         """先生成临时 PDF，成功后再替换目标，避免已有文件导致打印失败。"""
+        if tab.file_error:
+            finished(False, t("无法读取文件"))
+            return
         target_path = os.path.abspath(path)
         target_dir = os.path.dirname(target_path)
         temporary_path = os.path.join(
@@ -1868,6 +2147,8 @@ class MainWindow(QMainWindow):
 
     # ---------- 脏标记 / 标题 ----------
     def set_dirty(self, tab, dirty):
+        if tab.file_error:
+            return
         if tab.dirty != dirty:
             tab.dirty = dirty
         if dirty:
@@ -1907,6 +2188,8 @@ class MainWindow(QMainWindow):
         self.document_list.setCurrentRow(self.tabs.currentIndex())
         self.document_list.blockSignals(False)
         self._document_count.setText(str(len(self._tab_list)))
+        tab = self.current_tab()
+        self.project_explorer.reveal_file(tab.filepath if tab else None)
         self.setWindowTitle("MarkdownView")
 
     # ---------- 关闭窗口 ----------
@@ -1931,6 +2214,7 @@ class MainWindow(QMainWindow):
         self._persist_session(exclude_self=bool(others))
         self.document_list.cancel_drag()
         self._closed = True
+        self.project_explorer.set_folder(None)
         self._resize_timer.stop()
         self._resize_pending_geometry = None
         self._session_timer.stop()

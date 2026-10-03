@@ -534,6 +534,12 @@
   }
 
   // ---------- 供 Python 调用的接口 ----------
+  window.setDocumentZoom = function (factor) {
+    // Keep toolbar, popups and navigation in viewport coordinates.
+    var zoom = Math.max(0.5, Math.min(3, Number(factor) || 1));
+    document.documentElement.style.setProperty("--document-zoom", String(zoom));
+  };
+
   window.setAppearance = function (theme, sidebarVisible) {
     document.documentElement.setAttribute("data-sidebar-visible", String(sidebarVisible));
     if (document.documentElement.getAttribute("data-theme") !== theme) {

@@ -158,7 +158,9 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
     if (range) {
       root().focus(); var selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
       var scroller = root().scrollHeight > root().clientHeight ? root() : root().parentElement;
-      scroller.scrollTop += range.getBoundingClientRect().top - scroller.getBoundingClientRect().top - scroller.clientHeight / 2;
+      var viewport = scroller.getBoundingClientRect();
+      var scale = viewport.height / scroller.offsetHeight || 1;
+      scroller.scrollTop += (range.getBoundingClientRect().top - viewport.top) / scale - scroller.clientHeight / 2;
     } else { notice("原文已修改或删除，批注内容仍保留。"); }
     paint(data); renderList();
   }

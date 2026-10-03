@@ -149,6 +149,18 @@ def run(executable):
                 && typeof window.setLanguage === "function";
             '''), 'Current footer bridge, review or language assets missing from frozen application'
             print('PASS - Packaged editor includes the native footer bridge, comments and language controls', flush=True)
+            assert client.evaluate('''
+              var toolbar = document.querySelector('.vditor-toolbar');
+              var before = toolbar.getBoundingClientRect();
+              var size = [before.width, before.height, innerWidth];
+              window.setDocumentZoom(2);
+              var after = toolbar.getBoundingClientRect();
+              var fixed = size[0] === after.width && size[1] === after.height && size[2] === innerWidth;
+              var zoomed = getComputedStyle(document.querySelector('.vditor-ir')).zoom === '2';
+              window.setDocumentZoom(1);
+              return fixed && zoomed;
+            '''), 'Packaged document zoom also changed the toolbar size'
+            print('PASS - Packaged document zoom keeps the toolbar at its original size', flush=True)
             screenshot = client.call('Page.captureScreenshot', {'format': 'png'})
             (directory / 'packaged-editor.png').write_bytes(base64.b64decode(screenshot['data']))
             client.evaluate('window.__setEditorValue(window.currentMarkdown()+"\\n打包保存验证\\n");return true;')

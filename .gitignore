@@ -10,6 +10,7 @@ venv/
 /build/
 /dist/
 /tmp/
+*.exe
 
 # Local editor / agent state and credentials
 .zcode/
