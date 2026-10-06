@@ -72,8 +72,17 @@ class WorkspaceStore:
         self._commit()
 
     def write_session(self, documents, active):
-        self.state["session"] = {"documents": documents, "active": active}
-        self._commit()
+        session = {"documents": documents, "active": active}
+        if self.state.get("session") == session:
+            return
+        previous = self.state.get("session")
+        self.state["session"] = session
+        try:
+            self._commit()
+        except OSError:
+            # A failed write must remain retryable with the same session.
+            self.state["session"] = previous
+            raise
 
     def write_draft(self, tab, content):
         record = {"id": tab.draft_id, "path": tab.filepath,

@@ -136,6 +136,16 @@ def run(executable):
             ''')
             assert not state['error'] and state['formula'] > 0 and not state['formulaErrors'], state
             assert state['styles'] == 5 and state['colors'] == 6, state
+            fonts = client.call('Runtime.evaluate', {
+                'expression': '''Promise.all(Array.from(document.fonts)
+                    .filter(font => font.family.startsWith('KaTeX'))
+                    .map(font => font.load())).then(fonts => ({count: fonts.length,
+                        loaded: fonts.every(font => font.status === 'loaded')}))''',
+                'awaitPromise': True, 'returnByValue': True})
+            assert 'exceptionDetails' not in fonts, fonts
+            font_state = fonts['result']['value']
+            assert font_state['count'] >= 20 and font_state['loaded'], font_state
+            assert client.evaluate('return document.querySelectorAll(".mdv-toolbar-group").length === 8 && !!window.markdownMath;')
             for style, text in [('solid', '单横线'), ('double', '双横线'), ('wavy', '波浪线'), ('dashed', '虚线'), ('dotted', '点线')]:
                 name = 'mdv-underline' if style == 'solid' else 'mdv-underline-' + style
                 assert state['lines'][name] == text, state

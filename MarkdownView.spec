@@ -47,7 +47,7 @@ a = Analysis(
         "PySide6.QtQuickWidgets",
     ],
     noarchive=False,
-    optimize=0,
+    optimize=1,
 )
 
 
@@ -99,6 +99,14 @@ def keep_runtime_file(item):
         if destination.endswith(".d.ts"):
             return False
         if "/js/mathjax/" in destination:
+            return False
+        # The bundled Chromium uses WOFF2; legacy fallback copies duplicate
+        # the exact same fonts. Keep every WOFF2 face for offline formulas.
+        if "/js/katex/fonts/" in destination and destination.endswith((".ttf", ".woff")):
+            return False
+        if "/js/i18n/" in destination:
+            return destination.endswith(("/zh_cn.js", "/en_us.js"))
+        if destination.endswith("/js/icons/material.js"):
             return False
         if "/js/highlight.js/styles/" in destination:
             return destination.endswith("/github.min.css")

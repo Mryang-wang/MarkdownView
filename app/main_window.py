@@ -861,7 +861,7 @@ class MainWindow(QMainWindow):
             lambda: self._sidebar_action.setChecked(False))
         brand_row.addWidget(self._sidebar_collapse_button)
         side.addLayout(brand_row)
-        side.addSpacing(12)
+        side.addSpacing(6)
         self._sidebar_buttons = {}
         for key, text, callback, tip in (
                 ("new", t("新建文档"), lambda: self.new_tab(), t("新建文档 · Ctrl+T")),
@@ -869,10 +869,11 @@ class MainWindow(QMainWindow):
                 ("project", t("打开文件夹"), self.open_project_dialog, t("打开项目文件夹 · Ctrl+Shift+O"))):
             button = QToolButton(self.sidebar)
             button.setObjectName("sidebarAction")
+            button.setProperty("primaryAction", key == "new")
             button.setText(text)
             button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
             button.setIconSize(QSize(18, 18))
-            button.setFixedHeight(36)
+            button.setFixedHeight(34)
             button.setMinimumWidth(188)
             button.clicked.connect(callback)
             button.setToolTip(tip)
@@ -980,6 +981,8 @@ class MainWindow(QMainWindow):
             QLabel#sectionCaption {{ color: {muted}; padding-left: 8px; font-size: 11px; }}
             QLabel#documentCount {{ color: {muted}; font-size: 10px; padding-right: 8px; }}
             QToolButton#sidebarAction {{ text-align: left; padding: 0 10px; font-size: 12px; }}
+            QToolButton#sidebarAction[primaryAction="true"] {{ background: {bg}; border: 1px solid {border}; font-weight: 600; }}
+            QToolButton#sidebarAction[primaryAction="true"]:hover {{ background: {hover}; }}
             QToolButton#sidebarAction::menu-indicator {{ image: none; }}
             QToolButton#themeAction {{ text-align: left; padding: 0 10px;
                 border-top: 1px solid transparent; font-size: 11px; }}
@@ -1306,6 +1309,7 @@ class MainWindow(QMainWindow):
         file_menu.addAction(act_folder)
         self.addAction(act_folder)
         self._close_project_action = file_menu.addAction(t("关闭项目文件夹"), self.close_project_folder)
+        self._close_project_action.setToolTip(t("关闭项目文件夹，保留已打开的文档"))
         self._close_project_action.setEnabled(False)
 
         self._recent_menu = file_menu.addMenu(t("最近打开"))
@@ -2149,8 +2153,8 @@ class MainWindow(QMainWindow):
     def set_dirty(self, tab, dirty):
         if tab.file_error:
             return
-        if tab.dirty != dirty:
-            tab.dirty = dirty
+        was_dirty = tab.dirty
+        tab.dirty = dirty
         if dirty:
             tab.ever_edited = True
             tab.cached_content = None
@@ -2160,6 +2164,10 @@ class MainWindow(QMainWindow):
                 tab.backup_timer.start()
         else:
             tab.backup_timer.stop()
+        # Revision and draft tracking still run for every edit. Once the dirty
+        # dot is visible, typing does not change document rows or session paths.
+        if dirty and was_dirty:
+            return
         self._update_titles()
         self._schedule_session()
 

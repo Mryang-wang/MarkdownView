@@ -119,13 +119,13 @@ DOCX 导出通过 Pandoc 将公式转换为 Word 原生 OMML 对象，将表格�
 
 ## 构建 Windows 安装包
 
-安装脚本当前版本为 **1.1.4**，目标为 **Windows 10 1809 或更新版本的 x64 兼容环境**。
+安装脚本当前版本为 **1.1.5**，目标为 **Windows 10 1809 或更新版本的 x64 兼容环境**。
 
 先完成上述依赖与 Pandoc 安装，再安装 **Inno Setup 6**。在项目根目录执行：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --distpath dist/release-1.1.4 --workpath build/release-1.1.4 MarkdownView.spec
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --distpath dist/release-1.1.5 --workpath build/release-1.1.5 MarkdownView.spec
 
 # 如安装位置不同，请替换为实际的 ISCC.exe 路径
 & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer/MarkdownView.iss

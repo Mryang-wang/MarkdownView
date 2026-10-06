@@ -8,21 +8,26 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
   var timer = null, selectionTimer = null, loading = false;
   var excluded = '.vditor-ir__preview,.vditor-wysiwyg__preview,.vditor-ir__marker,[data-type$="-marker"],[data-type="html-inline"],[data-type="newline"],script,style,textarea';
   function root() { return editor.vditor[editor.getCurrentMode()].element; }
-  function skip(node) {
-    var parent = node.parentElement;
-    return parent && (parent.closest(excluded) || (editor.getCurrentMode() === "sv" && parent.closest('[class*="vditor-sv__marker"]')));
-  }
   function indexText(element) {
-    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), text = "", segments = [], lastBlock = null;
+    var selector = excluded + (editor.getCurrentMode() === "sv" ? ',[class*="vditor-sv__marker"]' : '');
+    // Reject rendered formula/preview subtrees once instead of visiting every
+    // KaTeX text node and walking its ancestors for each statistics refresh.
+    var walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          return node.matches(selector) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }), text = "", segments = [], lastBlock = null;
     while (walker.nextNode()) {
       var node = walker.currentNode;
-      if (skip(node) || !node.nodeValue.replace(/\u200b/g, "")) { continue; }
+      var value = node.nodeValue.replace(/\u200b/g, "");
+      if (!value) { continue; }
       var block = node.parentElement && node.parentElement.closest('p,h1,h2,h3,h4,h5,h6,td,th,li,[data-block]');
       if (lastBlock && block !== lastBlock) { text += "\n"; }
       var start = text.length;
-      for (var i = 0; i < node.nodeValue.length; i++) {
-        if (node.nodeValue[i] !== "\u200b") { text += node.nodeValue[i]; }
-      }
+      text += value;
       segments.push({node: node, start: start, end: text.length}); lastBlock = block;
     }
     return {text: text, segments: segments};

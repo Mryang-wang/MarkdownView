@@ -46,8 +46,8 @@ button { font: inherit; cursor: pointer; }
   background: transparent; color: var(--text); white-space: nowrap; }
 #mdv-find-panel button:hover { background: var(--hover); }
 #mdv-find-panel button:disabled { opacity: .4; cursor: default; }
-.find-options { display: flex; align-items: center; gap: 14px; margin-top: 7px; color: var(--muted); }
-.find-options label { display: flex; align-items: center; gap: 4px; }
+.find-options { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 7px; color: var(--muted); }
+.find-options label { display: flex; align-items: center; gap: 4px; white-space: nowrap; }
 .find-options input { accent-color: #737c6c; }
 #mdv-find-toggle { margin-left: auto; }
 ::highlight(mdv-found) { background: #f5e4a4; color: #343126; }
@@ -98,15 +98,17 @@ svg.ui-icon { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: cur
   --resize-icon-color: var(--muted); --toolbar-height: 42px;
 }
 html[data-theme="dark"] #vditor { --toolbar-icon-color: #a1a197; }
-#vditor .vditor-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 1px; padding: 7px 12px !important; border-bottom: 1px solid var(--line); background: var(--canvas); }
+#vditor .vditor-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 5px 6px; padding: 8px 12px !important; border-bottom: 1px solid var(--line); background: var(--canvas); }
+#vditor .mdv-toolbar-group { display: flex; flex: 0 0 auto; align-items: center; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
 #vditor .vditor-toolbar__item { padding: 0 1px; }
-#vditor .vditor-toolbar__item > button { display: flex; align-items: center; justify-content: center; width: 27px; height: 28px; padding: 6px; border-radius: 5px; transition: background .12s ease, color .12s ease; }
+#vditor .vditor-toolbar__item > button { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 6px; border-radius: 5px; transition: background .12s ease, color .12s ease; }
 #vditor .vditor-toolbar__item > button:hover { background: var(--hover); }
 #vditor .vditor-toolbar__item > button[data-type="u-underline-style"] { width: 16px; padding: 2px; }
 #vditor .vditor-toolbar__item:has([data-type="u-underline"]) { padding-right: 0; }
 #vditor .vditor-toolbar__item:has([data-type="u-underline-style"]) { padding-left: 0; }
 #vditor .vditor-toolbar__item > button:focus-visible { outline: 2px solid var(--muted); outline-offset: 1px; }
 #vditor .vditor-toolbar__item > button.vditor-menu--current { background: var(--hover); color: var(--text); }
+#vditor .vditor-toolbar__item > button.vditor-menu--disabled { opacity: .35; cursor: default; background: transparent; }
 #vditor .vditor-toolbar__item svg { width: 15px; height: 15px; }
 #vditor [data-type="mdv-sidebar"] svg { fill: none; stroke: currentColor; stroke-width: 1.6; }
 html:not([data-sidebar-visible="false"]) #vditor .vditor-toolbar__item:has([data-type="mdv-sidebar"]),
@@ -121,11 +123,11 @@ html:not([data-sidebar-visible="false"]) #vditor .vditor-toolbar__item:has([data
   #vditor .vditor-ir, #vditor .vditor-wysiwyg, #vditor .vditor-sv,
   #vditor .vditor-preview { zoom: 1; }
 }
-#vditor .vditor-ir > pre, #vditor .vditor-wysiwyg > pre, #vditor .vditor-sv > pre { width: 100%; min-height: 100%; padding: 48px max(40px, calc((100% - 780px) / 2)) 96px !important; }
+#vditor .vditor-ir > pre, #vditor .vditor-wysiwyg > pre, #vditor .vditor-sv > pre { width: 100%; min-height: 100%; padding: 40px max(32px, calc((100% - 760px) / 2)) 88px !important; }
 #vditor .vditor-reset { color: var(--text); font-family: "Segoe UI", "Microsoft YaHei", sans-serif; font-size: 15px; line-height: 1.9; letter-spacing: .1px; }
 #vditor .vditor-reset p { margin: 0 0 1.2em; }
-#vditor .vditor-reset h1 { font-size: 30px; line-height: 1.4; margin: 0 0 28px; padding-bottom: 0; border: 0; letter-spacing: -.7px; }
-#vditor .vditor-reset h2 { font-size: 24px; line-height: 1.5; margin: 36px 0 20px; padding-bottom: 0; border: 0; letter-spacing: -.4px; }
+#vditor .vditor-reset h1 { font-size: 30px; line-height: 1.4; margin: 0 0 24px; padding-bottom: 0; border: 0; letter-spacing: -.5px; }
+#vditor .vditor-reset h2 { font-size: 23px; line-height: 1.5; margin: 32px 0 18px; padding-bottom: 0; border: 0; letter-spacing: -.3px; }
 #vditor .vditor-reset h3 { font-size: 18px; margin: 26px 0 16px; }
 #vditor .vditor-reset h4, #vditor .vditor-reset h5, #vditor .vditor-reset h6 { margin: 24px 0 14px; }
 #vditor .vditor-reset a { color: #52785a; text-decoration: underline; text-underline-offset: 3px; }
@@ -159,7 +161,7 @@ html[data-theme="dark"] #vditor .hljs-string, html[data-theme="dark"] #vditor .h
 #vditor .vditor-outline__content { padding: 8px 12px; font-size: 12px; }
 #vditor .vditor-outline li > span:hover { background: var(--hover); color: var(--text); }
 #vditor .vditor-preview { background: var(--canvas); }
-#vditor .vditor-preview .vditor-reset { max-width: 860px; margin: auto; padding: 48px 40px 96px !important; }
+#vditor .vditor-preview .vditor-reset { max-width: 824px; margin: auto; padding: 40px 32px 88px !important; }
 #vditor .vditor-panel, #vditor .vditor-hint { border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); color: var(--text); box-shadow: var(--shadow); }
 #vditor .vditor-panel button:hover { background: var(--hover); }
 ::selection { background: var(--selection); color: var(--text); }
@@ -218,7 +220,11 @@ html[data-native-statusbar="true"] .mdview-stats-dialog { bottom: 12px; }
 }
 @media (max-width: 420px) {
   #editor-mode, .status-divider { display: none; }
-  #vditor .vditor-toolbar { padding: 5px 4px !important; }
+  #vditor .vditor-toolbar { gap: 4px; padding: 5px 6px !important; }
+  #vditor .vditor-toolbar__item > button { width: 24px; height: 26px; padding: 5px; }
+  #mdv-find-panel .find-row:first-child { display: grid; grid-template-columns: minmax(0, 1fr) repeat(3, 28px); }
+  #mdv-find-input { grid-column: 1 / -1; }
+  #mdv-find-count { text-align: left; }
   #vditor .vditor-ir > pre, #vditor .vditor-wysiwyg > pre, #vditor .vditor-sv > pre { padding-left: 22px !important; padding-right: 22px !important; }
   #empty-hint h1 { font-size: 21px; }
   #empty-hint p { font-size: 11px; }

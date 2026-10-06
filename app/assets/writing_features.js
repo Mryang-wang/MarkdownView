@@ -8,7 +8,7 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
   var count = document.getElementById("mdv-find-count");
   var caseOption = document.getElementById("mdv-find-case");
   var wordOption = document.getElementById("mdv-find-word");
-  var matches = [], active = 0, index = null, refreshTimer = null;
+  var matches = [], matchRanges = [], active = 0, index = null, refreshTimer = null;
 
   function root() { return editor.vditor[editor.getCurrentMode()].element; }
   function scrollContainer() {
@@ -17,14 +17,20 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
   }
 
   function textIndex(element) {
-    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    var excluded = '.vditor-ir__preview, .vditor-wysiwyg__preview, textarea, script, style';
+    if (editor.getCurrentMode() === "ir") { excluded += ',.vditor-ir__marker:not(pre),[data-type$="-marker"]'; }
+    var walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          return node.matches(excluded) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
     var segments = [], text = "", lastBlock = null;
     while (walker.nextNode()) {
       var node = walker.currentNode, parent = node.parentElement;
       if (!node.nodeValue || !node.nodeValue.replace(/\u200b/g, "")) { continue; }
-      if (parent.closest('.vditor-ir__preview, .vditor-wysiwyg__preview, textarea, script, style')) { continue; }
-      if (editor.getCurrentMode() === "ir" && parent.closest(
-          '.vditor-ir__marker:not(pre), [data-type$="-marker"]')) { continue; }
       var block = parent.closest('p, h1, h2, h3, h4, h5, h6, td, th, li, [data-block]');
       if (lastBlock && block !== lastBlock) { text += "\n"; }
       segments.push({ node: node, start: text.length, end: text.length + node.nodeValue.length });
@@ -35,15 +41,17 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
   }
 
   function rangeFor(data, match) {
-    var range = document.createRange(), start = null, end = null;
-    data.segments.some(function (segment) {
-      if (match.start >= segment.start && match.start < segment.end) { start = segment; return true; }
-      return false;
-    });
-    data.segments.some(function (segment) {
-      if (match.end > segment.start && match.end <= segment.end) { end = segment; return true; }
-      return false;
-    });
+    function segmentAt(offset, isEnd) {
+      var low = 0, high = data.segments.length;
+      while (low < high) {
+        var mid = (low + high) >>> 1, segment = data.segments[mid];
+        if (isEnd ? segment.end < offset : segment.end <= offset) { low = mid + 1; }
+        else { high = mid; }
+      }
+      var found = data.segments[low];
+      return found && (isEnd ? offset > found.start : offset >= found.start) ? found : null;
+    }
+    var range = document.createRange(), start = segmentAt(match.start, false), end = segmentAt(match.end, true);
     if (!start || !end) { return null; }
     range.setStart(start.node, match.start - start.start);
     range.setEnd(end.node, match.end - end.start);
@@ -56,19 +64,21 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
     }
   }
 
-  function paint(scroll) {
-    clearHighlights();
+  function paint(scroll, rebuild) {
     var hasMatches = matches.length > 0;
     ["mdv-find-prev", "mdv-find-next", "mdv-replace-one", "mdv-replace-all"].forEach(function (id) {
       document.getElementById(id).disabled = !hasMatches;
     });
     count.textContent = !query.value ? "" : hasMatches ? (active + 1) + " / " + matches.length : "无匹配";
+    if (rebuild) {
+      clearHighlights();
+      matchRanges = matches.map(function (match) { return rangeFor(index, match); });
+      if (CSS.highlights && hasMatches) { CSS.highlights.set("mdv-found", new Highlight(...matchRanges.filter(Boolean))); }
+    }
     if (!hasMatches) { return; }
-    var ranges = matches.map(function (match) { return rangeFor(index, match); }).filter(Boolean);
-    var current = rangeFor(index, matches[active]);
+    var current = matchRanges[active];
     if (CSS.highlights) {
-      CSS.highlights.set("mdv-found", new Highlight(...ranges));
-      var selected = new Highlight(current); selected.priority = 1;
+      var selected = new Highlight(...(current ? [current] : [])); selected.priority = 1;
       CSS.highlights.set("mdv-active", selected);
     }
     if (scroll && current) {
@@ -83,9 +93,10 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
   }
 
   function search(scroll, retain) {
-    index = textIndex(root());
+    clearTimeout(refreshTimer); refreshTimer = null;
     matches = [];
     var term = query.value;
+    index = term ? textIndex(root()) : null;
     if (term) {
       var escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       var expression = new RegExp(escaped, caseOption.checked ? "gu" : "giu");
@@ -98,7 +109,7 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
       }
     }
     active = retain ? Math.min(active, Math.max(0, matches.length - 1)) : 0;
-    paint(scroll);
+    paint(scroll, true);
   }
 
   function toggleReplace(enabled) {
@@ -113,20 +124,27 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
     search(false, false); query.focus(); query.select();
   };
   window.closeFind = function () {
+    if (refreshTimer) { search(false, false); }
     var selected = matches[active] && index ? rangeFor(index, matches[active]) : null;
     panel.hidden = true; clearHighlights(); editor.focus();
     if (selected && selected.startContainer.isConnected) {
       var selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(selected);
     }
+    matches = []; matchRanges = []; index = null;
   };
   window.findNext = function (direction) {
     if (panel.hidden) { window.openFind(false); return; }
+    if (refreshTimer) {
+      search(false, false);
+      active = direction < 0 ? Math.max(0, matches.length - 1) : 0;
+      paint(true); return;
+    }
     if (matches.length) { active = (active + direction + matches.length) % matches.length; paint(true); }
   };
   window.refreshFind = function () {
     if (panel.hidden) { return; }
     clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(function () { search(false, true); }, 80);
+    refreshTimer = setTimeout(function () { if (!panel.hidden) { search(false, true); } }, 120);
   };
 
   function replace(all) {
@@ -156,7 +174,13 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
     replacement.focus();
   }
 
-  query.addEventListener("input", function () { search(true, false); });
+  query.addEventListener("input", function (event) {
+    clearTimeout(refreshTimer); refreshTimer = null;
+    if (!event.isComposing) { refreshTimer = setTimeout(function () { if (!panel.hidden) { search(true, false); } }, 120); }
+  });
+  query.addEventListener("compositionend", function () {
+    clearTimeout(refreshTimer); refreshTimer = setTimeout(function () { if (!panel.hidden) { search(true, false); } }, 120);
+  });
   [caseOption, wordOption].forEach(function (option) {
     option.addEventListener("change", function () { search(true, false); });
   });
@@ -167,6 +191,7 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
   document.getElementById("mdv-replace-one").onclick = function () { replace(false); };
   document.getElementById("mdv-replace-all").onclick = function () { replace(true); };
   panel.addEventListener("keydown", function (event) {
+    if (event.isComposing) { return; }
     if (event.key === "Enter") { event.preventDefault(); window.findNext(event.shiftKey ? -1 : 1); }
   });
   document.addEventListener("keydown", function (event) {

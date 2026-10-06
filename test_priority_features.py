@@ -101,6 +101,7 @@ def search():
       var panel=document.getElementById('mdv-find-panel');
       var q=document.getElementById('mdv-find-input');
       q.value='alpha'; q.dispatchEvent(new Event('input'));
+      window.findNext(1); // Enter flushes the debounced query immediately.
       var initial=document.getElementById('mdv-find-count').textContent;
       document.getElementById('mdv-find-case').click();
       var sensitive=document.getElementById('mdv-find-count').textContent;
@@ -152,6 +153,7 @@ def test_modes():
         document.getElementById('mdv-find-case').checked=false;
         document.getElementById('mdv-find-word').checked=false;
         q.dispatchEvent(new Event('input'));
+        window.findNext(1);
         var count=document.getElementById('mdv-find-count').textContent;
         document.getElementById('mdv-replace-input').value='term';
         document.getElementById('mdv-replace-all').click();

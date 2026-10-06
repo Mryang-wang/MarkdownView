@@ -105,6 +105,7 @@
 <script src="./vditor/dist/js/i18n/en_US.js"></script>
 <script>window.__editorLocales.en = window.VditorI18n; window.VditorI18n = window.__editorLocales.zh_CN;</script>
 <script src="./language.js"></script>
+<script src="./markdown_math.js"></script>
 <script src="./vditor/dist/index.min.js"></script>
 <script src="./writing_features.js"></script>
 <script src="./inline_formats.js"></script>
@@ -117,37 +118,8 @@
   // 源文件使用 \(...\) / \[...\]（LaTeX 风格），Vditor/Lute 只识别 $...$ / $$...$$。
   // 加载时转换给编辑器，保存时还原，代码块与行内代码内的内容不动。
 
-  function transformOutsideCode(md, fn) {
-    // 捕获组使 split 结果中奇数项为代码段
-    var pattern = /(```[\s\S]*?(?:```|$)|`[^`\n]*`)/g;
-    var parts = md.split(pattern);
-    for (var i = 0; i < parts.length; i++) {
-      if (i % 2 === 0 && parts[i]) {
-        parts[i] = fn(parts[i]);
-      }
-    }
-    return parts.join("");
-  }
-
-  function mdToEditor(md) {
-    return transformOutsideCode(md, function (seg) {
-      // \[ ... \]  ->  $$...$$
-      seg = seg.replace(/\\\[([\s\S]+?)\\\]/g, function (m, p) { return "$$" + p + "$$"; });
-      // \( ... \)  ->  $...$
-      seg = seg.replace(/\\\(([\s\S]+?)\\\)/g, function (m, p) { return "$" + p + "$"; });
-      return seg;
-    });
-  }
-
-  function editorToMd(md) {
-    return transformOutsideCode(md, function (seg) {
-      // $...$（排除 $$） ->  \(...\)
-      seg = seg.replace(/(?<!\$)\$([^$\n]+?)\$(?!\$)/g, function (m, p) {
-        return "\\(" + p + "\\)";
-      });
-      return seg;
-    });
-  }
+  var mdToEditor = window.markdownMath.toEditor;
+  var editorToMd = window.markdownMath.fromEditor;
 
   // ---------- 图片相对路径显示 ----------
   window.__mdDirUrl = null; // 形如 file:///C:/path/to/dir/，由 Python 设置
@@ -356,12 +328,13 @@
         name: "mdv-sidebar", tip: "展开侧边栏 · Ctrl+\\", tipPosition: "s", icon: ICON_SIDEBAR,
         click: function () { if (bridge) { bridge.requestToggleSidebar(); } }
       },
-      "emoji", "headings", "bold", "italic",
+      "undo", "redo", "|", "headings", "bold", "italic",
       { name: "u-underline", tip: "下划线", tipPosition: "s", icon: ICON_UNDERLINE,
         click: function () { window.applyUnderline(); } },
       { name: "u-underline-style", tip: "下划线样式", tipPosition: "s", icon: ICON_CHEVRON,
         click: function () { window.openUnderlineStyles(); } },
       wrapBtn("u-strike", "删除线 ~~文本~~", "~~", "~~", ICON_STRIKE),
+      "|",
       wrapBtn("u-sup", "上标 ^文本^", "^", "^", ICON_SUP),
       wrapBtn("u-sub", "下标 ~文本~", "~", "~", ICON_SUB),
       { name: "u-mark", tip: "高亮颜色", tipPosition: "s", icon: ICON_MARK,
@@ -377,19 +350,18 @@
         icon: ICON_IMAGE,
         click: function () { window.requestInsertImage(); }
       },
-      "table",
+      "table", "emoji", "|",
       { name: "mdv-review", tip: "显示 / 隐藏批注", tipPosition: "s",
         icon: '<svg viewBox="0 0 24 24"><path d="M5 4h14a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2h-9l-5 3v-3H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M7 8h10M7 12h7"/></svg>',
-        click: function () { window.showReview(document.getElementById("mdv-review-panel").hidden); } }, "|",
-      "undo", "redo", "|", "edit-mode", "preview",
+        click: function () { window.showReview(document.getElementById("mdv-review-panel").hidden); } },
+      "outline", "|", "edit-mode", "preview",
       {
         name: "mdv-fullscreen",
         tip: "全屏切换 <Ctrl+'>（可滚动）",
         tipPosition: "s",
         icon: ICON_FULLSCREEN,
         click: function () { toggleFullscreen(); }
-      },
-      "outline"
+      }
     ],
     toolbarConfig: { pin: true },
     counter: { enable: false },   // 使用左下角自定义计数条
@@ -424,6 +396,7 @@
     customWysiwygToolbar: function () {},
     after: function () {
       window.__editorReady = true;
+      groupToolbar();
       vditor.vditor.lute.SetSup(true);
       vditor.vditor.lute.SetSub(true);
       window.installInlineFormats(vditor, function () {
@@ -454,6 +427,22 @@
     },
     blur: function () {}
   });
+
+  function groupToolbar() {
+    var toolbar = document.querySelector("#vditor .vditor-toolbar"), group = null, number = 0;
+    var names = ["历史记录", "文字样式", "标记", "列表", "段落", "插入", "文档导航", "显示方式"];
+    toolbar.setAttribute("role", "toolbar");
+    toolbar.setAttribute("aria-label", "编辑工具");
+    Array.from(toolbar.children).forEach(function (item) {
+      if (item.classList.contains("vditor-toolbar__divider")) { item.remove(); group = null; return; }
+      if (!group) {
+        group = document.createElement("div"); group.className = "mdv-toolbar-group";
+        group.setAttribute("role", "group"); group.setAttribute("aria-label", names[number++] || "编辑工具");
+        toolbar.insertBefore(group, item);
+      }
+      group.appendChild(item);
+    });
+  }
 
   function applyToolbarTooltips() {
     var tips = {
@@ -529,7 +518,9 @@
       place(target);
     });
     toolbar.addEventListener("focusout", hide);
+    toolbar.addEventListener("pointerdown", hide);
     document.addEventListener("scroll", hide, true);
+    window.addEventListener("resize", hide);
     window.addEventListener("blur", hide);
   }
 

@@ -135,7 +135,17 @@ def run():
         execute([sys.executable, str(ROOT / 'installer' / 'verify_release.py'), str(executable)])
         sentinel = install_dir / 'user-note.md'
         sentinel.write_text('Keep user-added documents.', encoding='utf-8')
+        # Recreate resources shipped by 1.1.4 to exercise upgrade cleanup.
+        assets = install_dir / '_internal' / 'app' / 'assets' / 'vditor' / 'dist' / 'js'
+        obsolete = [assets / 'katex/fonts/KaTeX_Main-Regular.ttf',
+                    assets / 'katex/fonts/KaTeX_Main-Regular.woff',
+                    assets / 'icons/material.js', assets / 'i18n/fr_FR.js']
+        for path in obsolete:
+            path.write_text('obsolete bundled resource', encoding='utf-8')
         execute(arguments)
+        assert not any(path.exists() for path in obsolete), 'Upgrade left obsolete runtime assets behind'
+        assert (assets / 'katex/fonts/KaTeX_Main-Regular.woff2').is_file()
+        assert (assets / 'i18n/zh_CN.js').is_file() and (assets / 'i18n/en_US.js').is_file()
         assert sentinel.read_text(encoding='utf-8') == 'Keep user-added documents.'
         assert value(class_path + '\\shell\\open\\command') == command
         print('PASS - Reinstall/upgrade preserves user-added documents and repairs registrations', flush=True)

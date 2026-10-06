@@ -7,7 +7,7 @@
 #ifndef MyRegistryExeName
   #define MyRegistryExeName "MarkdownView.exe"
 #endif
-#define MyAppVersion "1.1.4"
+#define MyAppVersion "1.1.5"
 #define MyAppPublisher "MarkdownView"
 #define MyAppExeName "MarkdownView.exe"
 #define MyProgId MyAppName + ".Markdown"
@@ -42,6 +42,22 @@ Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: 
 
 [Files]
 Source: "{#MyBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Remove only superseded bundled resources during upgrades; leave user files alone.
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\katex\fonts\*.ttf"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\katex\fonts\*.woff"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\icons\material.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\de_DE.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\es_ES.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\fr_FR.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\ja_JP.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\ko_KR.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\pt_BR.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\ru_RU.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\sv_SE.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\vi_VN.js"
+Type: files; Name: "{app}\_internal\app\assets\vditor\dist\js\i18n\zh_TW.js"
 
 [Registry]
 ; 注册当前用户的候选阅读器，由 Windows 默认应用设置确认最终选择。

@@ -65,6 +65,9 @@ def run():
                 if window.current_tab().ready:
                     break
             assert window.current_tab().ready, "Editor did not become ready"
+            assert not window._close_project_action.isEnabled()
+            window.open_project_folder(directory)
+            assert window._close_project_action.isEnabled()
             menu = window._file_menu
             layout = (QRect(window.centralWidget().geometry()),
                       QRect(window.current_tab().view.geometry()))
