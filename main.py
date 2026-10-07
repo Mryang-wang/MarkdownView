@@ -7,7 +7,7 @@
 import os
 import sys
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QSettings
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 # Qt WebEngine 在 Windows 上需要在 QApplication 创建前设置
@@ -36,6 +36,11 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("MarkdownView")
     app.setOrganizationName("MarkdownView")
+    # An explicitly isolated profile must not borrow real model credentials or UI settings.
+    if os.environ.get("MDVIEW_DATA_DIR"):
+        QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+        QSettings.setPath(QSettings.Format.IniFormat, QSettings.Scope.UserScope,
+                          os.path.join(os.path.abspath(os.environ["MDVIEW_DATA_DIR"]), "settings"))
 
     paths = [os.path.abspath(path) for path in sys.argv[1:] if os.path.isfile(path)]
     instance = SingleInstance(app)

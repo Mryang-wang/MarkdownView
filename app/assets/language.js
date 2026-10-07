@@ -2,7 +2,7 @@
 window.installLanguage = function (editor) {
   "use strict";
   var locale = "zh_CN", dictionary = {}, reverse = {}, patterns = [], editorPairs = {};
-  var ignored = '.vditor-reset,.vditor-sv,.vditor-preview,.review-quote,.review-card p,#mdv-review-quote,#mdv-review-input';
+  var ignored = '.vditor-reset,.vditor-sv,.vditor-preview,.review-quote,.review-card p,#mdv-review-quote,#mdv-review-input,.translation-source,.translation-name,.translation-stream';
   function translate(text) {
     var source = locale === "en" ? dictionary : reverse;
     if (Object.prototype.hasOwnProperty.call(source, text)) { return source[text]; }

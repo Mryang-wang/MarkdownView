@@ -8,9 +8,13 @@ from PySide6.QtWidgets import (
     QPlainTextEdit, QPushButton, QVBoxLayout)
 
 
-class RecoveryDialog(QDialog):
+from .dialog_theme import AppDialog, style_dialog
+
+
+class RecoveryDialog(AppDialog):
     def __init__(self, window, records):
         super().__init__(window)
+        style_dialog(self, window._theme)
         self.setWindowTitle(t("恢复未保存的草稿"))
         self.resize(720, 480)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)

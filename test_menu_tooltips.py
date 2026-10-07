@@ -76,6 +76,7 @@ def run():
             open_menu(window, menu)
             actions = [action for action in menu.actions()
                        if not action.isSeparator()
+                       and action.isEnabled()
                        and action is not window._recent_menu.menuAction()]
             for action in actions:
                 hover(menu, action)

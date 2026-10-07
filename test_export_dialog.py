@@ -58,6 +58,10 @@ def run():
             timer.start()
             with patch.object(QFileDialog,'getSaveFileName',return_value=(str(docx),'')):
                 window.export_docx(window.current_tab(),content)
+            for _ in range(250):
+                if captured or errors:break
+                QTest.qWait(80)
+            timer.stop()
             assert not errors,errors
             assert captured==[docx.name] and zipfile.is_zipfile(docx),captured
             assert not window.current_tab().dirty

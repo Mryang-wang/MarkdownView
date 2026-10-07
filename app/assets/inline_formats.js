@@ -1,5 +1,5 @@
 /* 下划线与彩色高亮：保留 Markdown 中的 HTML 标记，绘制可编辑文本的格式。 */
-window.installInlineFormats = function (editor, changed) {
+window.installInlineFormats = function (editor, changed, getBridge) {
   "use strict";
   var panel = document.getElementById("mdv-highlight-panel");
   var picker = document.getElementById("mdv-highlight-custom");
@@ -111,7 +111,7 @@ window.installInlineFormats = function (editor, changed) {
     });
   }
 
-  function applyFormat(prefix, suffix, range) {
+  function applyFormat(prefix, suffix, range, transform) {
     range = restoreRange(range);
     if (!range) { return; }
     var selection = "";
@@ -138,7 +138,8 @@ window.installInlineFormats = function (editor, changed) {
       if (editor.getCurrentMode() === "ir") { completeIRFormats(root()); }
       restoreRange(range);
     }
-    editor.insertMD(prefix + (selection || window.uiText("文本")) + suffix);
+    var text = selection || window.uiText("文本");
+    editor.insertMD(transform ? transform(text) : prefix + text + suffix);
     editor.vditor.undo.addToUndoStack(editor.vditor);
     changed(); refreshFormats();
   }
@@ -283,6 +284,7 @@ window.installInlineFormats = function (editor, changed) {
   });
 
   function refreshFormats() {
+    if (window.refreshFontFormats) { window.refreshFontFormats(); }
     if (!CSS.highlights) { return; }
     highlightNames.forEach(function (name) { CSS.highlights.delete(name); });
     highlightNames = [];
@@ -350,12 +352,14 @@ window.installInlineFormats = function (editor, changed) {
       var name = "mdv-color-" + key.slice(1), highlight = new Highlight(...groups[key]);
       highlight.priority = depth;
       CSS.highlights.set(name, highlight); highlightNames.push(name);
-      rules.push("::highlight(" + name + ") { background-color: " + background + "; color: " + foreground(background) + "; }");
+      rules.push("::highlight(" + name + ") { background-color: " + background + "; color: var(--mdv-inline-color, " + foreground(background) + "); }");
     });
     var css = rules.join("\n");
     if (style.textContent !== css) { style.textContent = css; }
   }
   window.refreshInlineFormats = refreshFormats;
+  window.installFontFeatures(editor, {currentRange: currentRange, restoreRange: restoreRange,
+    textNodes: textNodes, applyFormat: applyFormat, positionPanel: positionPanel}, getBridge, changed);
   new MutationObserver(function () {
     clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshFormats, 30);
   }).observe(document.querySelector("#vditor .vditor-content"), { subtree: true, childList: true, characterData: true });

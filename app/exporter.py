@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from xml.sax.saxutils import quoteattr
 
 
 def _parse_version(text):
@@ -119,20 +120,47 @@ def preprocess_for_texmath(md_text):
 # ---------- 导出 ----------
 
 def _apply_inline_styles(output_path):
-    """补上 Word 原生下划线和 RGB 高亮，兼容同一选区上的格式叠加。"""
+    """补上 Word 原生字体、字号、文字颜色、下划线和 RGB 高亮。"""
     underline_values = {"solid": "single", "double": "double", "wavy": "wave",
                         "dashed": "dash", "dotted": "dotted"}
 
     def properties(style_id):
-        highlight = re.fullmatch(r"MDViewHighlight_([A-F0-9]{6})_([A-F0-9]{6})(?:_U_(\w+))?", style_id)
-        underline = re.fullmatch(r"MDViewUnderline_(\w+)", style_id)
+        # The Lua filter resolves each property separately from outer to inner
+        # spans. Explicit text color also wins over a mark's contrast color.
+        foreground = re.search(r"_C_([A-F0-9]{6}|AUTO)$", style_id)
+        if foreground:
+            style_id = style_id[:foreground.start()]
+        size = re.search(r"_S_(\d+)$", style_id)
+        if size:
+            style_id = style_id[:size.start()]
         result = ""
-        if highlight:
-            result = (f'<w:shd w:val="clear" w:color="auto" w:fill="{highlight[1]}"/>'
-                      f'<w:color w:val="{highlight[2]}"/>')
-        line = highlight[3] if highlight else underline[1] if underline else None
-        if line in underline_values:
-            result += f'<w:u w:val="{underline_values[line]}"/>'
+        font = re.fullmatch(r"MDViewFont_([A-F0-9]+)(?:_H_([A-F0-9]{6})_([A-F0-9]{6}))?(?:_U_(\w+))?", style_id)
+        if font:
+            try:
+                family = bytes.fromhex(font[1]).decode("utf-8")
+            except (ValueError, UnicodeDecodeError):
+                return ""
+            name = quoteattr(family)
+            result = f'<w:rFonts w:ascii={name} w:hAnsi={name} w:eastAsia={name} w:cs={name}/>'
+            if font[2]:
+                result += f'<w:shd w:val="clear" w:color="auto" w:fill="{font[2]}"/><w:color w:val="{font[3]}"/>'
+            if font[4] in underline_values:
+                result += f'<w:u w:val="{underline_values[font[4]]}"/>'
+        else:
+            highlight = re.fullmatch(r"MDViewHighlight_([A-F0-9]{6})_([A-F0-9]{6})(?:_U_(\w+))?", style_id)
+            underline = re.fullmatch(r"MDViewUnderline_(\w+)", style_id)
+            if highlight:
+                result = (f'<w:shd w:val="clear" w:color="auto" w:fill="{highlight[1]}"/>'
+                          f'<w:color w:val="{highlight[2]}"/>')
+            line = highlight[3] if highlight else underline[1] if underline else None
+            if line in underline_values:
+                result += f'<w:u w:val="{underline_values[line]}"/>'
+        if size:
+            result += f'<w:sz w:val="{size[1]}"/><w:szCs w:val="{size[1]}"/>'
+        if foreground:
+            result = re.sub(r'<w:color\b[^>]*/>', '', result)
+            color = "auto" if foreground[1] == "AUTO" else foreground[1]
+            result += f'<w:color w:val="{color}"/>'
         return result
 
     def decorate(block, style_id, closing_tag):
@@ -141,7 +169,7 @@ def _apply_inline_styles(output_path):
             return block
         def update_run(match):
             content = match[1]
-            for tag in ("shd", "color", "u"):
+            for tag in ("shd", "color", "u", "rFonts", "sz", "szCs"):
                 if f"<w:{tag} " in added:
                     content = re.sub(rf'<w:{tag}\b[^>]*(?:/>|>.*?</w:{tag}>)', "", content, flags=re.DOTALL)
             return "<w:rPr>" + content + added + "</w:rPr>"
@@ -152,11 +180,11 @@ def _apply_inline_styles(output_path):
     with zipfile.ZipFile(output_path) as source:
         styles = source.read("word/styles.xml").decode("utf-8")
         document = source.read("word/document.xml").decode("utf-8")
-        updated_styles = re.sub(r'<w:style\b[^>]*\bw:styleId="(MDView(?:Highlight|Underline)_\w+)"[^>]*>.*?</w:style>',
+        updated_styles = re.sub(r'<w:style\b[^>]*\bw:styleId="(MDView(?:Highlight|Underline|Font|Text)_\w+)"[^>]*>.*?</w:style>',
                                 lambda match: decorate(match[0], match[1], "</w:style>"), styles, flags=re.DOTALL)
         def decorate_text(match):
             block = match[0]
-            inline_style = re.search(r'<w:rStyle\b[^>]*\bw:val="(MDView(?:Highlight|Underline)_\w+)"', block)
+            inline_style = re.search(r'<w:rStyle\b[^>]*\bw:val="(MDView(?:Highlight|Underline|Font|Text)_\w+)"', block)
             return decorate(block, inline_style[1], "</w:r>") if inline_style else block
         updated_document = re.sub(r"<w:r\b[^>]*>.*?</w:r>", decorate_text, document, flags=re.DOTALL)
         if updated_styles == styles and updated_document == document:
@@ -180,7 +208,7 @@ def _apply_inline_styles(output_path):
             os.remove(temporary)
 
 
-def export_docx(markdown_text, output_path, resource_dir=None):
+def export_docx(markdown_text, output_path, resource_dir=None, reference_doc=None, toc=False):
     """把 markdown 文本导出为 docx，返回 pandoc 的 stderr 警告（可为空字符串）。
 
     公式转为 Word 原生 OMML，表格转为 Word 原生表格。
@@ -196,38 +224,40 @@ def export_docx(markdown_text, output_path, resource_dir=None):
     markdown_text = preprocess_for_texmath(markdown_text)
     output_path = os.path.abspath(output_path)
 
-    # 写入临时 md 文件（pandoc 以文件为输入最稳妥）
-    tmp_dir = tempfile.mkdtemp(prefix="mdview_")
-    tmp_md = os.path.join(tmp_dir, "input.md")
-    with open(tmp_md, "w", encoding="utf-8") as f:
-        f.write(markdown_text)
-
-    cmd = [
-        pandoc, tmp_md,
-        "--from",
-        "markdown+tex_math_single_backslash+tex_math_double_backslash+mark",
-        "--to", "docx",
-        "--lua-filter", os.path.join(os.path.dirname(__file__), "assets", "export_formats.lua"),
-        "--standalone",
-        "--output", output_path,
-    ]
-    if resource_dir:
-        cmd.extend(["--resource-path", resource_dir])
-
+    if reference_doc and not os.path.isfile(reference_doc):
+        raise ExportError(t("Word 样式模板不存在，请重新选择。"))
+    # Keep the old output intact until conversion and style repair both succeed.
     try:
-        proc = subprocess.run(
-            cmd, capture_output=True, text=True, timeout=120,
-            encoding="utf-8", errors="replace",
-            cwd=resource_dir or tmp_dir)
+        with tempfile.TemporaryDirectory(prefix="mdview_") as tmp_dir:
+            tmp_md = os.path.join(tmp_dir, "input.md")
+            generated = os.path.join(tmp_dir, "output.docx")
+            with open(tmp_md, "w", encoding="utf-8") as stream:
+                stream.write(markdown_text)
+            cmd = [pandoc, tmp_md, "--from",
+                   "markdown+tex_math_single_backslash+tex_math_double_backslash+mark",
+                   "--to", "docx", "--lua-filter",
+                   os.path.join(os.path.dirname(__file__), "assets", "export_formats.lua"),
+                   "--standalone", "--output", generated]
+            if resource_dir: cmd.extend(["--resource-path", resource_dir])
+            if reference_doc: cmd.extend(["--reference-doc", os.path.abspath(reference_doc)])
+            if toc: cmd.append("--toc")
+            proc = subprocess.run(cmd, capture_output=True, text=True, timeout=120,
+                                  encoding="utf-8", errors="replace", cwd=resource_dir or tmp_dir,
+                                  creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+            if proc.returncode != 0:
+                raise ExportError(t("pandoc 导出失败：\n") + (proc.stderr or t("未知错误")))
+            if not os.path.exists(generated):
+                raise ExportError(t("pandoc 未生成输出文件。"))
+            _apply_inline_styles(generated)
+            handle, temporary = tempfile.mkstemp(prefix=".mdview-export-", suffix=".docx", dir=os.path.dirname(output_path))
+            os.close(handle)
+            try:
+                shutil.copyfile(generated, temporary)
+                os.replace(temporary, output_path)
+            finally:
+                if os.path.exists(temporary): os.remove(temporary)
+            return proc.stderr or ""
     except subprocess.TimeoutExpired:
-        raise ExportError(t("pandoc 导出超时（120 秒）。"))
-
-    if proc.returncode != 0:
-        raise ExportError(t("pandoc 导出失败：\n") + (proc.stderr or t("未知错误")))
-    if not os.path.exists(output_path):
-        raise ExportError(t("pandoc 未生成输出文件。"))
-    try:
-        _apply_inline_styles(output_path)
+        raise ExportError(t("pandoc 导出超时（120 秒）。")) from None
     except (OSError, zipfile.BadZipFile) as error:
-        raise ExportError(t(f"无法保留导出的下划线与高亮格式：{error}")) from error
-    return proc.stderr or ""
+        raise ExportError(t("Word 导出失败：{0}").format(error)) from error

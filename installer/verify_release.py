@@ -145,7 +145,7 @@ def run(executable):
             assert 'exceptionDetails' not in fonts, fonts
             font_state = fonts['result']['value']
             assert font_state['count'] >= 20 and font_state['loaded'], font_state
-            assert client.evaluate('return document.querySelectorAll(".mdv-toolbar-group").length === 8 && !!window.markdownMath;')
+            assert client.evaluate('return !document.querySelector(".mdv-toolbar-group") && document.querySelectorAll(".vditor-toolbar > .vditor-toolbar__item").length > 20 && !!window.markdownMath;')
             for style, text in [('solid', '单横线'), ('double', '双横线'), ('wavy', '波浪线'), ('dashed', '虚线'), ('dotted', '点线')]:
                 name = 'mdv-underline' if style == 'solid' else 'mdv-underline-' + style
                 assert state['lines'][name] == text, state
@@ -159,6 +159,22 @@ def run(executable):
                 && typeof window.setLanguage === "function";
             '''), 'Current footer bridge, review or language assets missing from frozen application'
             print('PASS - Packaged editor includes the native footer bridge, comments and language controls', flush=True)
+            assert client.evaluate('''
+              var source=window.translationSource();
+              window.setReadOnly(true);
+              var locked=window.mdvReadOnly && document.querySelector('.vditor-ir pre').contentEditable==='false';
+              window.setReadOnly(false);
+              return locked && !!source.full && typeof window.bridge.requestTranslation === 'function'
+                && typeof window.applyReadingPreferences === 'function'
+                && typeof window.locateSourceLine === 'function'
+                && typeof window.prepareDocumentPrint === 'function';
+            '''), 'Translation, reading or printing features missing from frozen application'
+            client.evaluate('getSelection().removeAllRanges();window.requestTranslation();return true;')
+            wait_until(lambda: client.evaluate('return !document.getElementById("mdv-translation-panel").hidden;'), 15)
+            assert client.evaluate('return !document.getElementById("mdv-translation-reader").hidden;')
+            client.evaluate('window.translationUI.exit();return true;')
+            assert client.evaluate('return document.getElementById("mdv-translation-reader").hidden && !document.getElementById("vditor").inert;')
+            print('PASS - Packaged translation rail and bilingual reader open and close; reading and export snapshot assets are present', flush=True)
             assert client.evaluate('''
               var toolbar = document.querySelector('.vditor-toolbar');
               var before = toolbar.getBoundingClientRect();

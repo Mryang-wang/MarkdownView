@@ -148,6 +148,7 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
   };
 
   function replace(all) {
+    if (window.mdvReadOnly) { return; }
     search(false, true);
     if (!matches.length) { return; }
     var clone = root().cloneNode(true), clonedIndex = textIndex(clone);
@@ -212,6 +213,7 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
     });
   }
   window.importDroppedImages = async function (files) {
+    if (window.mdvReadOnly) { return window.uiText("只读模式下不能插入图片。"); }
     var bridge = getBridge();
     if (!bridge) { return window.uiText("编辑器尚未就绪，请稍后再试。"); }
     var selection = window.getSelection();
@@ -236,7 +238,7 @@ window.installWritingFeatures = function (editor, getBridge, changed) {
     } catch (error) { return window.uiText("插入图片失败：" + error.message); }
   };
   window.editorAcceptsImage = function () {
-    return !document.activeElement.closest('input, textarea, #mdv-find-panel, #mdview-stats-backdrop');
+    return !window.mdvReadOnly && !document.activeElement.closest('input, textarea, #mdv-find-panel, #mdview-stats-backdrop');
   };
 
   var positionTimer = null;

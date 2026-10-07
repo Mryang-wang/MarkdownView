@@ -107,9 +107,17 @@ def run():
             for width in (1320, 860, 480):
                 window.resize(width, 360 if width == 480 else 760)
                 pump(.25)
-                assert evaluate("return Array.from(document.querySelectorAll('.mdv-toolbar-group')).length === 8;")
+                assert evaluate("return !document.querySelector('.mdv-toolbar-group') && document.querySelectorAll('.vditor-toolbar > .vditor-toolbar__item').length > 20;")
+                # Each row is packed up to the next individual button, not a whole group.
+                assert evaluate("""var toolbar=document.querySelector('.vditor-toolbar'), style=getComputedStyle(toolbar);
+                    var items=Array.from(toolbar.children).map(n=>n.getBoundingClientRect()).filter(r=>r.width>0);
+                    var edge=toolbar.getBoundingClientRect().right-parseFloat(style.paddingRight);
+                    return items.every((r,i)=>!i || r.top===items[i-1].top || edge-items[i-1].right < r.width+parseFloat(style.columnGap)+1);"""), width
                 overflow = evaluate("return Array.from(document.querySelectorAll('.vditor-toolbar__item > button')).filter(b => b.getBoundingClientRect().width && (b.getBoundingClientRect().right > innerWidth || b.getBoundingClientRect().left < 0)).map(b=>b.dataset.type);")
                 assert not overflow, (width, overflow)
+                capture = Path(__file__).resolve().parent / 'tmp' / 'audit-after' / f'toolbar-{width}.png'
+                capture.parent.mkdir(parents=True, exist_ok=True)
+                window.grab().save(str(capture))
                 if width == 480:
                     assert evaluate("return document.querySelector('.vditor-content').getBoundingClientRect().height >= 100;")
                     evaluate("window.openFind(true); return true;")
@@ -119,7 +127,7 @@ def run():
                     window.grab().save(str(capture))
                     evaluate("window.closeFind(); return true;")
             assert not evaluate("return window.__err;")
-            print("PASS - All toolbar groups remain reachable at 1320, 860 and 480 pixels", flush=True)
+            print("PASS - Individual toolbar buttons fill rows and remain reachable at 1320, 860 and 480 pixels", flush=True)
         finally:
             for tab in window._tab_list:
                 tab.dirty = False

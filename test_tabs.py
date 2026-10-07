@@ -103,6 +103,11 @@ def step6(result):
     pixmap = win.view.grab()
     print("screenshot saved:", pixmap.save("screenshot_tabs.png"))
     print("TABS_TEST:", "PASSED" if not failed else f"FAILED {failed}")
+    # The fixture deliberately edits an untitled tab. Dismiss it in test cleanup
+    # so QApplication.quit does not block on the real unsaved-changes dialog.
+    for tab in win._tab_list:
+        tab.dirty = False
+    win.close()
     app.quit()
     sys.exit(0 if not failed else 1)
 

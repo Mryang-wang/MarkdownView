@@ -104,12 +104,16 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
     Object.assign(anchor, anchorAt(data, candidates[0].at, candidates[0].at + anchor.quote.length));
     return true;
   }
-  function rebase(anchor, old, data) {
-    if (anchor.detached || old === data.text) { return; }
-    var start = 0, suffix = 0, text = data.text;
+  function textChange(old, text) {
+    if (old === text) { return null; }
+    var start = 0, suffix = 0;
     while (start < Math.min(old.length, text.length) && old[start] === text[start]) { start++; }
     while (suffix < Math.min(old.length, text.length) - start && old[old.length - suffix - 1] === text[text.length - suffix - 1]) { suffix++; }
-    var oldEnd = old.length - suffix, newEnd = text.length - suffix, delta = newEnd - oldEnd;
+    return {start: start, oldEnd: old.length - suffix, newEnd: text.length - suffix, delta: text.length - old.length};
+  }
+  function rebase(anchor, data, change) {
+    if (anchor.detached || !change) { return; }
+    var start = change.start, oldEnd = change.oldEnd, newEnd = change.newEnd, delta = change.delta, text = data.text;
     if (oldEnd <= anchor.start) {
       Object.assign(anchor, anchorAt(data, anchor.start + delta, anchor.end + delta));
     } else if (start >= anchor.end) {
@@ -137,13 +141,17 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
     clearTimeout(timer); timer = null;
     if (loading || (!comments.length && !pending && !remembered)) { return; }
     var data = indexText(root()), md = editor.getValue(), edited = previousMd !== null && md !== previousMd;
+    // A format/toolbar refresh can rebuild DOM nodes without changing the text.
+    // Repaint using the new nodes, but retain the already-resolved anchors.
+    var textChanged = !previous || previous.text !== data.text;
+    var change = edited && previous ? textChange(previous.text, data.text) : null;
     comments.forEach(function (comment) {
-      if (edited && previous) { rebase(comment.anchor, previous.text, data); }
-      else if (!comment.anchor.detached && !locate(comment.anchor, data)) { comment.anchor.detached = true; }
+      if (edited && previous) { rebase(comment.anchor, data, change); }
+      else if (textChanged && !comment.anchor.detached && !locate(comment.anchor, data)) { comment.anchor.detached = true; }
     });
     [pending, remembered].filter(Boolean).forEach(function (a) {
-      if (edited && previous) { rebase(a, previous.text, data); }
-      else { locate(a, data); }
+      if (edited && previous) { rebase(a, data, change); }
+      else if (textChanged) { locate(a, data); }
     });
     previous = data; previousMd = md; paint(data); renderList();
   }
@@ -153,6 +161,7 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
   function notice(text) { message.textContent = text; message.hidden = !text; }
   function closeComposer() { pending = null; input.value = ""; composer.hidden = true; }
   window.showReview = function (visible) {
+    if (visible && window.translationUI) { window.translationUI.leave(); }
     panel.hidden = !visible; document.documentElement.setAttribute("data-review-visible", String(!!visible));
     toolbar.classList.toggle("vditor-menu--current", !!visible); toolbar.setAttribute("aria-expanded", String(!!visible));
     if (!visible) { notice(""); }

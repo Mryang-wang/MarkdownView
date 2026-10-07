@@ -10,6 +10,7 @@ import base64
 import re
 import weakref
 import time
+from pathlib import Path
 from urllib.parse import quote, unquote
 
 from PySide6.QtCore import (
@@ -86,25 +87,54 @@ class _EditorView(QWebEngineView):
         comment.setObjectName("addReviewComment")
         comment.setToolTip(t("为选中的正文添加批注"))
         comment.setEnabled(False)
+        translation = menu.addAction(t("翻译选中内容…"))
+        translation.setObjectName("translateSelection")
         request = self.lastContextMenuRequest()
         position = event.globalPos()
+        translation.setEnabled(bool(request and request.selectedText().strip()))
 
-        def show_menu(enabled):
+        table_actions = {}
+
+        def show_menu(state):
             if not isValid(self) or not isValid(menu):
                 return
-            comment.setEnabled(bool(enabled))
+            state = state if isinstance(state, dict) else {}
+            comment.setEnabled(bool(state.get("comment")))
+            table = state.get("table")
+            if isinstance(table, dict) and table.get("editable"):
+                menu.addSeparator()
+                insert = menu.addMenu(t("插入行列"))
+                delete = menu.addMenu(t("删除行列"))
+                for parent, label, command in (
+                    (insert, "在上方插入行", "rowAbove"),
+                    (insert, "在下方插入行", "rowBelow"),
+                    (insert, "在左侧插入列", "columnLeft"),
+                    (insert, "在右侧插入列", "columnRight"),
+                    (delete, "删除当前行", "deleteRow"),
+                    (delete, "删除当前列", "deleteColumn"),
+                    (menu, "选中整个表格", "selectTable"),
+                    (menu, "删除整个表格", "deleteTable"),
+                ):
+                    action = parent.addAction(t(label))
+                    action.setObjectName("table_" + command)
+                    table_actions[action] = command
             chosen = menu.exec(position)
             if chosen == comment:
                 self.page().runJavaScript("window.addReviewComment()")
+            elif chosen == translation:
+                self.page().runJavaScript("window.requestTranslation()")
+            elif chosen in table_actions:
+                self.page().runJavaScript("window.tableAction(" + json.dumps(table_actions[chosen]) + ")")
             menu.deleteLater()
 
         # WebEngine pauses JavaScript while its native context menu is open.
         # Validate the body selection first, then show the complete menu.
-        if request and request.isContentEditable() and request.selectedText().strip():
-            self.page().runJavaScript(
-                "!!window.canAddReviewComment && window.canAddReviewComment()", show_menu)
-        else:
-            show_menu(False)
+        can_comment = bool(request and request.isContentEditable() and request.selectedText().strip())
+        point = event.pos()
+        self.page().runJavaScript(
+            "JSON.stringify({comment: " + ("!!window.canAddReviewComment && window.canAddReviewComment()" if can_comment else "false")
+            + ", table: window.tableContext ? window.tableContext(" + str(point.x()) + "," + str(point.y()) + ") : null})",
+            lambda value: show_menu(json.loads(value) if value else {}))
 
 
 class _Workspace(QWidget):
@@ -469,6 +499,8 @@ class EditorTab:
     def display_name(self):
         if self.filepath or self.pending_file:
             return os.path.basename(self.filepath or self.pending_file)
+        if getattr(self, "suggested_name", None):
+            return self.suggested_name
         return t("恢复 - ") + os.path.basename(self.recovery_origin) if self.recovery_origin else t("未命名")
 
     def file_dir(self):
@@ -492,6 +524,8 @@ class MainWindow(QMainWindow):
         self._resize_timer.timeout.connect(self._apply_pending_resize)
         install_qt_language()
         self._theme = QSettings().value("appearance/theme", "light", type=str)
+        from .dialog_theme import install_dialog_theme
+        install_dialog_theme()
         self.store = WorkspaceStore.shared()
         self.store.windows.add(self)
         self._closed = False
@@ -529,6 +563,8 @@ class MainWindow(QMainWindow):
 
         self._build_app_icon()
         self._build_menus()
+        from .workspace_features import WorkspaceFeatures
+        self.features = WorkspaceFeatures(self)
         self._build_window_controls()
         self._apply_chrome_style()
         self.statusBar().setSizeGripEnabled(False)
@@ -583,6 +619,8 @@ class MainWindow(QMainWindow):
         if tab:
             tab.last_used = time.monotonic()
             tab.ensure_loaded()
+            if tab.ready and getattr(tab, "translation", None):
+                tab.translation.refresh()
         self._resource_timer.start()
 
     def _loaded_tabs(self):
@@ -1046,6 +1084,8 @@ class MainWindow(QMainWindow):
             if isinstance(window, MainWindow):
                 window._theme = theme
                 window._apply_chrome_style()
+        from .dialog_theme import refresh_dialog_themes
+        refresh_dialog_themes(theme)
 
     def _toggle_sidebar(self, visible):
         self.sidebar.setVisible(visible)
@@ -1170,6 +1210,8 @@ class MainWindow(QMainWindow):
     def event(self, event):
         if event.type() == QEvent.Type.WindowActivate:
             QApplication.instance()._last_document_window = weakref.ref(self)
+            if hasattr(self, "features"):
+                QTimer.singleShot(0, self.features, self.features.check_external)
         # 菜单说明使用气泡，悬停事件不能显示状态栏或清除保存/导出消息。
         if event.type() == QEvent.Type.StatusTip:
             event.accept()
@@ -1401,6 +1443,18 @@ class MainWindow(QMainWindow):
                 action.setShortcut(shortcut)
             action.triggered.connect(lambda _checked=False, js=code: self._cur_js(js))
 
+        edit_menu.addSeparator()
+        translation_action = edit_menu.addAction(t("翻译…"))
+        translation_action.setShortcut("Ctrl+Alt+T")
+        translation_action.setToolTip(t("使用自己的语言模型翻译选区或全文"))
+        translation_action.triggered.connect(lambda: self.open_translation(self.current_tab()))
+        self._document_actions.append(translation_action)
+        immersive_action = edit_menu.addAction(t("全文翻译模式"))
+        immersive_action.setShortcut("Ctrl+Alt+Shift+T")
+        immersive_action.setToolTip(t("逐段对照阅读原文和译文"))
+        immersive_action.triggered.connect(lambda: self.open_translation(self.current_tab(), "full"))
+        self._document_actions.append(immersive_action)
+
         view_menu = self.menuBar().addMenu(t("视图(&V)"))
         self._sidebar_action = QAction(t("显示侧栏"), self)
         self._sidebar_action.setCheckable(True)
@@ -1436,6 +1490,7 @@ class MainWindow(QMainWindow):
             action.triggered.connect(lambda _checked=False, js=code: self._cur_js(js))
 
         settings_menu = self.menuBar().addMenu(t("设置(&S)"))
+        settings_menu.addAction(t("翻译模型设置…"), self.translation_settings)
         language_menu = settings_menu.addMenu(t("语言"))
         self._language_actions = {}
         for code, label in (("zh_CN", "简体中文"), ("en", "English")):
@@ -1450,6 +1505,7 @@ class MainWindow(QMainWindow):
         act_about.setToolTip(t("显示版本与导出引擎信息"))
         act_about.triggered.connect(self._show_about)
         help_menu.addAction(act_about)
+        self._main_menus = (file_menu, edit_menu, view_menu, settings_menu, help_menu)
 
         for menu in (file_menu, self._recent_menu, edit_menu, view_menu, settings_menu, language_menu, help_menu):
             menu.setToolTipsVisible(True)
@@ -1482,6 +1538,54 @@ class MainWindow(QMainWindow):
             f"DOCX 导出引擎：{ver}"))
 
     # ---------- 标签页管理 ----------
+    def translation_settings(self):
+        from .translation_dialog import TranslationSettingsDialog
+        dialog = TranslationSettingsDialog(self, self._theme)
+        dialog.exec()
+        dialog.deleteLater()
+        for tab in self._tab_list:
+            if getattr(tab, "translation", None):
+                tab.translation.send("settings", tab.translation.settings())
+
+    def open_translation(self, tab, mode="selection"):
+        if not tab or tab.file_error or self._closed:
+            return
+        tab.ensure_loaded()
+        if not tab.ready:
+            QTimer.singleShot(100, self, lambda: self.open_translation(tab, mode) if tab in self._tab_list else None)
+            return
+
+        def received(value):
+            if self._closed or tab not in self._tab_list or tab is not self.current_tab():
+                return
+            try:
+                snapshot = json.loads(value)
+                if not snapshot.get("full", "").strip():
+                    return
+            except (ValueError, TypeError):
+                return
+            from .translation_panel import TranslationPanel
+            if not getattr(tab, "translation", None):
+                tab.translation = TranslationPanel(tab)
+            tab.translation.open(snapshot, mode)
+
+        tab.view.page().runJavaScript("JSON.stringify(window.translationSource())", received)
+
+    def open_translated_document(self, content, source_dir, name):
+        tab = self.new_tab()
+        tab.resource_dir = self.store.asset_directory(tab.draft_id)
+        try:
+            content = self._relocate_images(content, source_dir, tab.resource_dir)
+        except OSError as error:
+            QMessageBox.warning(self, t("图片复制失败"), str(error))
+            tab.resource_dir = source_dir
+        tab.suggested_name = Path(name).stem + t(" - 译文") + ".md"
+        tab.pending_draft = {"content": content}
+        self.set_dirty(tab, True)
+        self._update_titles()
+        self.activateWindow()
+        return tab
+
     def new_tab(self, filepath=None):
         tab = EditorTab(self)
         if filepath:
@@ -1608,6 +1712,10 @@ class MainWindow(QMainWindow):
 
     def _destroy_tab(self, index):
         tab = self._tab_list.pop(index)
+        if getattr(tab, "translation", None):
+            tab.translation.close()
+        self.features.remember_closed(tab)
+        self.features.watch()
         tab.backup_timer.stop()
         self._remove_draft(tab, remove_assets=True)
         self.tabs.removeTab(index)
@@ -1645,6 +1753,11 @@ class MainWindow(QMainWindow):
         else:
             self._sync_md_dir(tab)
         self._sync_document_ui(tab)
+        self.features.apply(tab)
+        if getattr(tab, "translation", None) and tab.translation.snapshot:
+            tab.translation.restore(hidden=True)
+        if getattr(tab, "lightweight", False):
+            tab.js("window.setLightweight(true)")
         commands, tab.pending_commands = tab.pending_commands, []
         for command in commands:
             tab.js(command)
@@ -1666,6 +1779,8 @@ class MainWindow(QMainWindow):
         self.editor_status.set_unavailable(unavailable)
         for action in self._document_actions:
             action.setEnabled(not unavailable)
+        if hasattr(self, "features"):
+            self.features.sync()
 
     def _apply_document_zoom(self, tab, factor):
         if tab.file_error:
@@ -1711,6 +1826,12 @@ class MainWindow(QMainWindow):
         tab.autosave_paused = False
         tab.cached_content = text
         self._remember_file(tab.filepath)
+        tab.external_changed = False
+        self.features.watch()
+        if len(text.encode("utf-8")) > 1024 * 1024 and QSettings().value("performance/autoLightweight", True, type=bool):
+            tab.lightweight = True
+            tab.js("window.setLightweight(true)")
+            self.statusBar().showMessage(t("大文档已使用轻量模式，可从“视图”切回完整渲染。"), 6000)
         tab.js("window.setContent(%s); window.markClean();" % json.dumps(text))
         self._sync_md_dir(tab)
         self.set_dirty(tab, False)
@@ -1773,7 +1894,7 @@ class MainWindow(QMainWindow):
         if save_as or not path:
             path, _ = QFileDialog.getSaveFileName(
                 self, t("保存 Markdown 文件"),
-                path or tab.recovery_origin or self.project_explorer.root_path,
+                path or tab.recovery_origin or os.path.join(self.project_explorer.root_path, getattr(tab, "suggested_name", "")),
                 t("Markdown 文件 (*.md);;所有文件 (*)"))
             if not path:
                 tab.close_after_save = False
@@ -1781,8 +1902,18 @@ class MainWindow(QMainWindow):
                 return
         old_dir = tab.file_dir()
         path = os.path.abspath(path)
+        if (not automatic and tab.filepath and os.path.normcase(path) == os.path.normcase(tab.filepath)
+                and self._file_stamp(path) != tab.file_stamp):
+            self.features.compare_external(tab, content)
+            tab.close_after_save = tab.quit_after_save = False
+            return
         try:
             content = self._relocate_images(content, old_dir, os.path.dirname(path))
+            if os.path.isfile(path):
+                try:
+                    self.features.snapshot(path, Path(path).read_text(encoding="utf-8-sig"), automatic)
+                except UnicodeError:
+                    pass
             atomic_write(path, content)
         except OSError as e:
             if automatic:
@@ -1796,6 +1927,9 @@ class MainWindow(QMainWindow):
         tab.filepath = os.path.abspath(path)
         tab.file_stamp = self._file_stamp(path)
         tab.autosave_paused = False
+        tab.external_changed = False
+        self.features.snapshot(path, content, automatic)
+        self.features.watch()
         if old_dir and os.path.normcase(old_dir) != os.path.normcase(os.path.dirname(path)):
             tab.js("window.applySavedContent(%s)" % json.dumps(content))
         else:
@@ -1819,21 +1953,31 @@ class MainWindow(QMainWindow):
     def export_docx(self, tab, content):
         if tab.file_error:
             return
+        if getattr(self, "_docx_export_in_progress", False):
+            self.statusBar().showMessage(t("Word 正在导出，请稍候…"), 3000)
+            return
         default = self._export_default_path(tab, "docx")
         path, _ = QFileDialog.getSaveFileName(
             self, t("导出为 DOCX"), default, t("Word 文档 (*.docx)"))
         if not path:
             return
-        try:
-            warnings = export_docx(
-                content, path,
-                resource_dir=tab.file_dir())
-        except ExportError as e:
-            QMessageBox.critical(self, t("导出失败"), str(e))
-            return
-        self._remember_export_directory(path)
-        self.statusBar().showMessage(t(f"已导出：{path}"), 5000)
-        ExportSuccessDialog.show_result(self, path, warnings)
+        from .workspace_dialogs import preferences, EXPORT_DEFAULTS
+        options = preferences("export/preferences", EXPORT_DEFAULTS)
+        resource_dir = tab.file_dir()
+        self._docx_export_in_progress = True
+        self.statusBar().showMessage(t("正在导出 Word…"))
+
+        def completed(warnings, error):
+            self._docx_export_in_progress = False
+            if error:
+                QMessageBox.critical(self, t("导出失败"), str(error))
+                return
+            self._remember_export_directory(path)
+            self.statusBar().showMessage(t(f"已导出：{path}"), 5000)
+            ExportSuccessDialog.show_result(self, path, warnings)
+
+        self.features.background(lambda: export_docx(content, path, resource_dir=resource_dir,
+                                  reference_doc=options["reference"], toc=options["toc"]), completed)
 
     def export_pdf(self, tab):
         if not tab or tab.file_error:
@@ -1901,62 +2045,75 @@ class MainWindow(QMainWindow):
         self._print_pdf(tab, temporary_path, printed)
 
     def _print_pdf(self, tab, path, finished):
-        """打印当前 Vditor 文档内容，临时隐藏编辑器控件。"""
+        """Print an isolated snapshot, preserving editing mode, selection and zoom."""
+        from PySide6.QtCore import QMarginsF
+        from PySide6.QtGui import QPageLayout, QPageSize
+        from .workspace_dialogs import preferences, EXPORT_DEFAULTS
+        options = preferences("export/preferences", EXPORT_DEFAULTS)
+        sizes = {"A4": QPageSize.PageSizeId.A4, "A5": QPageSize.PageSizeId.A5,
+                 "Letter": QPageSize.PageSizeId.Letter, "Legal": QPageSize.PageSizeId.Legal}
+        paper = options["paper"] if options["paper"] in sizes else "A4"
+        margin = max(5, min(40, int(options["margin"])))
+        orientation = QPageLayout.Orientation.Landscape if options["landscape"] else QPageLayout.Orientation.Portrait
+        layout = QPageLayout(QPageSize(sizes[paper]), orientation, QMarginsF(margin, margin, margin, margin), QPageLayout.Unit.Millimeter)
         tab.printing = True
         page = tab.view.page()
-        print_style = """
-          @page { size: A4; margin: 12mm; }
-          html, body { display: block !important; height: auto !important; overflow: visible !important;
-                       background: white !important; }
-          html[data-theme="dark"] { --canvas: white; --surface: #f8f8f5; --text: #222;
-              --muted: #666; --line: #e0e0dc; --code: #f4f4ef; color-scheme: light; }
-          #vditor { display: block !important; width: 100% !important; height: auto !important;
-                     overflow: visible !important; position: static !important; }
-          #vditor .vditor-content { display: block !important; width: 100% !important;
-                                     height: auto !important; overflow: visible !important; margin-right: 0 !important; }
-          #vditor .vditor-ir, #vditor .vditor-ir > pre { display: block !important;
-              width: 100% !important; height: auto !important; min-height: 0 !important;
-              overflow: visible !important; flex: none !important; box-sizing: border-box !important; }
-          #vditor .vditor-ir > pre { padding: 10px 15.75% !important; }
-          #vditor .vditor-ir__preview { overflow: visible !important; }
-          #vditor .vditor-outline, #vditor .vditor-wysiwyg, #vditor .vditor-sv,
-          #vditor .vditor-preview { display: none !important; }
-          #vditor .vditor-toolbar, #mdview-counter, #mdview-stats-backdrop,
-          #editor-statusbar, #empty-hint, #mdv-review-panel, #mdv-find-panel,
-          #mdv-highlight-panel, #mdv-underline-panel,
-          #mdv-toolbar-tooltip { display: none !important; }
-          #vditor, #vditor .vditor-ir { background: white !important; color: #222 !important; }
-          #vditor .vditor-reset { color: #222 !important; }
-          * { scrollbar-width: none !important; }
-          *::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+        numbering = "@bottom-center { content: counter(page); font: 9pt sans-serif; color: #666; }" if options["numbers"] else ""
+        direction = "landscape" if options["landscape"] else "portrait"
+        print_style = f"""
+          @page {{ size: {paper} {direction}; margin: {margin}mm; {numbering} }}
+          @media print {{
+            html, body {{ height: auto !important; overflow: visible !important; background: white !important; }}
+            body > :not(#mdv-print-root) {{ display: none !important; }}
+            #mdv-print-root {{ display: block !important; position: static !important; width: auto !important;
+              max-width: none !important; margin: 0 !important; padding: 0 !important;
+              color: #222 !important; background: white !important; zoom: 1 !important;
+              font-family: var(--reading-font, 'Segoe UI'), 'Microsoft YaHei', sans-serif;
+              font-size: var(--reading-size, 15px); line-height: var(--reading-line, 1.9); }}
+            #mdv-print-root p {{ margin-bottom: var(--reading-paragraph, 1.2em); }}
+            #mdv-print-root pre {{ white-space: pre-wrap; overflow-wrap: anywhere; }}
+            #mdv-print-root img {{ max-width: 100%; }}
+            #mdv-print-root a {{ color: #345f4c; }}
+            #mdv-print-root h1, #mdv-print-root h2, #mdv-print-root h3 {{ break-after: avoid; }}
+            #mdv-print-root table {{ border-collapse: collapse; }}
+            #mdv-print-root td, #mdv-print-root th {{ border: 1px solid #ccc; padding: 6px 10px; }}
+          }}
         """
-        add_style = """
-          var existing = document.getElementById('mdview-pdf-print-style');
-          if (existing) { existing.remove(); }
-          var style = document.createElement('style');
-          style.id = 'mdview-pdf-print-style';
-          style.textContent = %s;
-          document.head.appendChild(style);
-        """ % json.dumps(print_style)
+        completed = False
+        deadline = time.monotonic() + 12
 
-        def pdf_finished(_file_path, success):
+        def cleanup(success):
+            nonlocal completed
+            if completed: return
+            completed = True
             tab.printing = False
-            if not tab.window._closed:
-                tab.window._resource_timer.start()
-            try:
-                page.pdfPrintingFinished.disconnect(pdf_finished)
-            except RuntimeError:
-                pass
-            page.runJavaScript(
-                "var style = document.getElementById('mdview-pdf-print-style');"
-                "if (style) { style.remove(); }")
+            try: page.pdfPrintingFinished.disconnect(pdf_finished)
+            except (RuntimeError, TypeError): pass
+            if isValid(page):
+                page.runJavaScript("window.clearDocumentPrint(); var s=document.getElementById('mdview-pdf-print-style'); if(s)s.remove();")
+            if not tab.window._closed: tab.window._resource_timer.start()
             finished(success)
 
-        def start_print(_result):
-            page.pdfPrintingFinished.connect(pdf_finished)
-            page.printToPdf(path)
+        def pdf_finished(_file_path, success):
+            cleanup(success)
 
-        page.runJavaScript(add_style, start_print)
+        def ready(value):
+            if completed: return
+            if not isValid(page) or tab.window._closed:
+                cleanup(False); return
+            if value:
+                page.pdfPrintingFinished.connect(pdf_finished)
+                page.printToPdf(path, layout)
+                QTimer.singleShot(30000, self, lambda: cleanup(False) if not completed else None)
+            elif time.monotonic() > deadline: cleanup(False)
+            else: QTimer.singleShot(80, self, check)
+
+        def check():
+            if not isValid(page): cleanup(False)
+            else: page.runJavaScript("window.documentPrintReady === true", ready)
+
+        script = "var style=document.createElement('style'); style.id='mdview-pdf-print-style'; style.textContent=%s; document.head.appendChild(style); window.prepareDocumentPrint(%s);" % (json.dumps(print_style), json.dumps(options))
+        page.runJavaScript(script, lambda _: check())
 
     def _finish_pdf_export(self, path, success, error=None):
         self._pdf_export_in_progress = False
@@ -2053,6 +2210,8 @@ class MainWindow(QMainWindow):
         tab.view.page().runJavaScript("window.editorAcceptsImage()", accepted)
 
     def insert_image_dialog(self, tab):
+        if getattr(tab, "read_only", False):
+            return
         sources, _ = QFileDialog.getOpenFileNames(
             self, t("选择图片"), "",
             t("图片文件 (*.png *.jpg *.jpeg *.gif *.bmp *.webp *.svg);;所有文件 (*)"))
@@ -2079,6 +2238,8 @@ class MainWindow(QMainWindow):
             return json.dumps({"error": str(error)}, ensure_ascii=False)
 
     def _store_image(self, tab, data, name):
+        if getattr(tab, "read_only", False):
+            raise ValueError(t("只读模式下不能插入图片。"))
         if len(data) > 50 * 1024 * 1024:
             raise ValueError(t("单张图片不能超过 50 MB。"))
         buffer = QBuffer()
@@ -2088,6 +2249,23 @@ class MainWindow(QMainWindow):
         if not reader.canRead():
             raise ValueError(t("无法读取这张图片，请选择 PNG、JPEG、GIF、WebP 或 SVG 等图片文件。"))
         extension = bytes(reader.format()).decode("ascii").lower()
+        if (QSettings().value("images/compress", False, type=bool)
+                and extension not in ("gif", "svg", "svgz") and not reader.supportsAnimation()):
+            size = reader.size()
+            edge = QSettings().value("images/maxEdge", 2560, type=int)
+            if size.width() > edge or size.height() > edge:
+                size.scale(edge, edge, Qt.AspectRatioMode.KeepAspectRatio)
+                reader.setScaledSize(size)
+            bitmap = reader.read()
+            if not bitmap.isNull():
+                compressed = QBuffer()
+                compressed.open(QIODevice.OpenModeFlag.WriteOnly)
+                encoding = "PNG" if bitmap.hasAlphaChannel() else "JPEG"
+                if bitmap.save(compressed, encoding, QSettings().value("images/quality", 85, type=int)):
+                    result = bytes(compressed.data())
+                    if len(result) < len(data):
+                        data = result
+                        extension = encoding.lower()
         if extension == "jpeg":
             extension = "jpg"
         base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", os.path.splitext(os.path.basename(name))[0])
@@ -2105,38 +2283,8 @@ class MainWindow(QMainWindow):
 
     @staticmethod
     def _relocate_images(content, source_dir, target_dir):
-        if not source_dir or os.path.normcase(source_dir) == os.path.normcase(target_dir):
-            return content
-        relocated = {}
-
-        def relocate(match):
-            reference = match.group(2)
-            relative = unquote(reference.strip("<>")).removeprefix("./")
-            if not relative.startswith("images/"):
-                return match.group(0)
-            if relative in relocated:
-                return match.group(1) + relocated[relative]
-            source = os.path.abspath(os.path.join(source_dir, relative))
-            image_root = os.path.abspath(os.path.join(source_dir, "images"))
-            if os.path.commonpath([source, image_root]) != image_root or not os.path.isfile(source):
-                return match.group(0)
-            destination_dir = os.path.join(target_dir, "images")
-            os.makedirs(destination_dir, exist_ok=True)
-            name = os.path.basename(source)
-            destination = os.path.join(destination_dir, name)
-            if os.path.exists(destination):
-                stem, extension = os.path.splitext(name)
-                name = f"{stem}-{uuid.uuid4().hex[:8]}{extension}"
-                destination = os.path.join(destination_dir, name)
-            shutil.copyfile(source, destination)
-            relocated[relative] = "images/" + quote(name, safe="-_.")
-            return match.group(1) + relocated[relative]
-
-        parts = re.split(r'(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)', content)
-        for index in range(0, len(parts), 2):
-            parts[index] = re.sub(r'(!\[[^\]]*\]\()(<[^>]*>|[^\s)]+)', relocate, parts[index])
-            parts[index] = re.sub(r'''(<img\b[^>]*?\bsrc=["'])([^"']+)''', relocate, parts[index])
-        return "".join(parts)
+        from .document_services import relocate_images
+        return relocate_images(content, source_dir, target_dir)
 
     # ---------- 打开链接 ----------
     def open_url(self, tab, url):
@@ -2222,6 +2370,10 @@ class MainWindow(QMainWindow):
         self._persist_session(exclude_self=bool(others))
         self.document_list.cancel_drag()
         self._closed = True
+        self.features.close()
+        for tab in self._tab_list:
+            if getattr(tab, "translation", None):
+                tab.translation.close()
         self.project_explorer.set_folder(None)
         self._resize_timer.stop()
         self._resize_pending_geometry = None

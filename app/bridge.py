@@ -4,6 +4,13 @@
 每个标签页一个桥实例，调用转发给所属标签页，再由标签页委托主窗口处理。
 """
 from PySide6.QtCore import QObject, Slot
+from PySide6.QtGui import QFontDatabase
+from functools import lru_cache
+
+
+@lru_cache(maxsize=1)
+def _font_families():
+    return [name for name in QFontDatabase.families() if not name.startswith("@")]
 
 
 class Bridge(QObject):
@@ -18,6 +25,8 @@ class Bridge(QObject):
     @Slot()
     def notifyDirty(self):
         self._tab.window.set_dirty(self._tab, True)
+        panel = getattr(self._tab, "translation", None)
+        if panel: panel.source_changed()
 
     @Slot()
     def notifyClean(self):
@@ -44,8 +53,33 @@ class Bridge(QObject):
         self._tab.window.export_docx(self._tab, content)
 
     @Slot()
+    def requestTranslation(self):
+        self._tab.window.open_translation(self._tab)
+
+    @Slot(str, str)
+    def translationAction(self, action, options):
+        import json
+        if len(options) > 20000:
+            return
+        try:
+            data = json.loads(options)
+        except (ValueError, TypeError):
+            return
+        panel = getattr(self._tab, "translation", None)
+        if panel and isinstance(data, dict):
+            panel.action(action, data)
+
+    @Slot()
+    def leaveFocusMode(self):
+        self._tab.window.features.set_focus(False)
+
+    @Slot()
     def requestInsertImage(self):
         self._tab.window.insert_image_dialog(self._tab)
+
+    @Slot(result="QStringList")
+    def fontFamilies(self):
+        return _font_families()
 
     @Slot(str, str, result=str)
     def importImage(self, data_url, name):

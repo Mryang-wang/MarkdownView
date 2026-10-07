@@ -10,6 +10,7 @@
   --on-accent: #ffffff;
   --code: #f4f4ef;
   --selection: #e8eee5;
+  --mdv-text-color: var(--text);
   --shadow: 0 8px 32px rgba(30, 30, 24, .1), 0 2px 6px rgba(30, 30, 24, .04);
   font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
 }
@@ -54,6 +55,64 @@ button { font: inherit; cursor: pointer; }
 ::highlight(mdv-active) { background: #d9b75f; color: #27251e; }
 @media print { #mdv-find-panel { display: none !important; } }
 button:focus-visible { outline: 2px solid var(--muted); outline-offset: 3px; }
+#vditor .vditor-toolbar__item > button[data-type="mdv-font"] { width: auto; min-width: 65px; padding: 5px 9px; gap: 5px; font: inherit; }
+#vditor button[data-type="mdv-font"] svg { width: 12px; height: 12px; }
+#mdv-font-panel { position: fixed; z-index: 1150; width: 310px; max-width: calc(100vw - 16px);
+  padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--canvas);
+  color: var(--text); box-shadow: var(--shadow); font-size: 13px; }
+#mdv-font-search { width: 100%; margin: 12px 0 8px; padding: 9px 10px; border: 1px solid var(--line);
+  border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; }
+#mdv-font-search:focus { outline: 1px solid var(--muted); }
+#mdv-font-options { max-height: min(240px, 40vh); overflow-y: auto; }
+#mdv-font-options button { display: block; text-align: left; width: 100%; padding: 9px 10px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--text); font-size: 14px; overflow-wrap: anywhere; }
+#mdv-font-options button:hover, #mdv-font-options button:focus-visible { background: var(--hover); }
+#mdv-font-options button:disabled, #mdv-font-reset:disabled { opacity: .45; cursor: default; }
+#mdv-font-notice { color: var(--muted); font-size: 12px; margin: 10px 0; }
+.font-panel-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.font-panel-actions button { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; background: var(--surface); color: var(--text); }
+.font-panel-actions button:hover { background: var(--hover); }
+#vditor [data-mdv-font-marker] { display: none; }
+/* Manual foreground choices also win over a later highlight in previews/PDF. */
+.vditor-reset [data-mdv-text-color] mark { color: inherit !important; }
+.text-style-panel { position: fixed; z-index: 1150; width: 300px; max-width: calc(100vw - 16px); padding: 16px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--canvas); color: var(--text); box-shadow: var(--shadow); font-size: 13px; }
+#vditor .vditor-toolbar__item > button[data-type="mdv-font-size"] { width: auto; min-width: 46px; padding: 5px 8px; font: inherit; }
+.text-size-input, .text-color-input { display: flex; gap: 10px; align-items: center; margin: 14px 0; }
+.text-style-panel input { min-width: 0; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; }
+.text-style-panel input:focus { outline: 1px solid var(--muted); }
+#mdv-size-value { flex: 1; width: 100px; }
+.text-size-presets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; max-height: 32vh; overflow-y: auto; }
+.text-style-panel button { padding: 7px 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; }
+.text-style-panel button:hover { background: var(--hover); }
+.text-style-panel button:disabled { opacity: .45; cursor: default; }
+.text-style-panel button[data-apply] { background: var(--accent); color: var(--on-accent); }
+.text-style-notice { margin: 12px 0; color: var(--muted); font-size: 12px; }
+.text-style-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 14px; }
+.text-style-actions [data-reset] { margin-right: auto; }
+#mdv-text-colors { display: grid; grid-template-columns: repeat(8, 1fr); gap: 5px; margin-top: 14px; }
+#mdv-text-colors button { padding: 0; aspect-ratio: 1; border: 1px solid var(--muted); }
+#mdv-text-color-value { width: 40px; height: 35px; padding: 2px; cursor: pointer; }
+#mdv-text-color-hex { flex: 1; }
+@media print { .text-style-panel { display: none !important; } }
+@media print { #mdv-font-panel { display: none !important; } }
+#mdv-table-panel { position: fixed; z-index: 1150; width: 320px; max-width: calc(100vw - 16px);
+  padding: 18px; border: 1px solid var(--line); border-radius: 12px;
+  background: var(--canvas); color: var(--text); box-shadow: var(--shadow); font-size: 13px; }
+#mdv-table-title { font-size: 15px; }
+.table-dimensions { display: flex; gap: 14px; margin-top: 16px; }
+.table-dimensions label { flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: space-between; }
+.table-dimensions input { display: block; width: 100%; margin-top: 7px; padding: 9px 10px;
+  border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--text); font: inherit; }
+.table-dimensions input:focus { outline: 1px solid var(--muted); }
+#mdv-table-panel p { margin: 12px 0 16px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.table-panel-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.table-panel-actions button { padding: 8px 14px; border: 1px solid var(--line); border-radius: 7px;
+  background: var(--surface); color: var(--text); }
+.table-panel-actions button:hover { background: var(--hover); }
+.table-panel-actions button[type="submit"] { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+#vditor table.mdv-table-selected { outline: 2px solid var(--muted); outline-offset: 3px; }
+@media print { #mdv-table-panel { display: none !important; } }
 #mdv-highlight-panel { position: fixed; z-index: 1150; width: 256px; max-width: calc(100vw - 16px);
   padding: 14px; border: 1px solid var(--line); border-radius: 10px;
   background: var(--canvas); color: var(--text); box-shadow: var(--shadow); font-size: 12px; }
@@ -98,9 +157,8 @@ svg.ui-icon { width: 18px; height: 18px; flex-shrink: 0; fill: none; stroke: cur
   --resize-icon-color: var(--muted); --toolbar-height: 42px;
 }
 html[data-theme="dark"] #vditor { --toolbar-icon-color: #a1a197; }
-#vditor .vditor-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 5px 6px; padding: 8px 12px !important; border-bottom: 1px solid var(--line); background: var(--canvas); }
-#vditor .mdv-toolbar-group { display: flex; flex: 0 0 auto; align-items: center; padding: 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); }
-#vditor .vditor-toolbar__item { padding: 0 1px; }
+#vditor .vditor-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 4px 3px; padding: 8px 12px !important; border-bottom: 1px solid var(--line); background: var(--canvas); }
+#vditor .vditor-toolbar__item { flex: 0 0 auto; padding: 0 1px; }
 #vditor .vditor-toolbar__item > button { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 6px; border-radius: 5px; transition: background .12s ease, color .12s ease; }
 #vditor .vditor-toolbar__item > button:hover { background: var(--hover); }
 #vditor .vditor-toolbar__item > button[data-type="u-underline-style"] { width: 16px; padding: 2px; }
