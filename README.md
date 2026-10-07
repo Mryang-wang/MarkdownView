@@ -4,12 +4,13 @@
 
 基于 **Python + PySide6 / Qt WebEngine + Vditor + KaTeX**，支持即时渲染、多文档、批注、草稿恢复、模型翻译，以及 Word / PDF 导出。
 
-**当前源码版本：1.3.0 · 2026-10-07 更新。** 本次仅发布源码、文档及测试，不上传 EXE 或安装包；可以按下文从源码运行。
+**当前源码版本：1.3.0 · 2026-10-07 更新。** 仓库保留应用源码、运行资源、构建配置及说明文档；测试脚本仅在本地维护，不上传 EXE 或安装包。可以按下文从源码运行。
 
 - **局部文字格式**：选中一句或一段，修改字体、字号和文字颜色，保存及 Word / PDF 导出保留格式。
 - **表格编辑**：自定行列数，右键插入／删除行列，选中或删除整张表格。
 - **页内翻译**：右侧栏实时显示，全文左右对照与同步滚动；支持 30 种语言及自定义语言、开始／停止／继续翻译。
 - **手动增量翻译**：编辑原文后点击“更新改动”，仅翻译修改句段并复用其余译文；支持自定义专业提示词与术语表。
+- **翻译阅读位置修复**：流式更新及每段翻译完成后保留阅读位置，避免原文和译文一起跳回开头；手动滚动仍优先响应。
 - **修复与优化**：修复图片迁移、翻译引用保护及输入法误触，减少批注重复定位和后台扫描；47 个本地源码回归脚本最终通过。
 
 详见 [功能与使用说明](docs/features-1.2.md)、[本轮检查报告](docs/validation-2026-10-07.md)及[资源实测](docs/resource-optimization.md)。
@@ -201,37 +202,19 @@ MarkdownView/
 │   └── assets/                # HTML、CSS、脚本与本地 Vditor 资源
 ├── docs/                      # 功能说明、性能记录与界面截图
 ├── design/app-icon/           # 图标源素材和各尺寸资源
-├── installer/                 # Inno Setup 脚本与安装验证
+├── installer/                 # Inno Setup 脚本、语言与版本资源
 ├── tools/                     # 图标生成工具
-├── test_*.py                  # 独立的功能与界面回归脚本
-├── bench_*.py                 # 性能测量脚本
-├── verify_docx.py             # DOCX 公式与表格检查
 ├── MarkdownView.spec         # PyInstaller 构建配置
 └── requirements.txt          # Python 运行依赖
 ```
 
-## 开发验证
+## 验证与仓库范围
 
-现有测试以独立脚本运行，部分会启动真实 Qt / WebEngine 窗口，需要可用的桌面会话。请逐个运行，例如：
+测试、性能基准及安装验证脚本保留在维护者本地，已从公开仓库移除并加入忽略规则。应用运行和构建不依赖这些脚本；私人样本、测试输出、虚拟环境及打包产物也不纳入仓库。
 
-```powershell
-.\.venv\Scripts\python.exe test_export_path.py
-.\.venv\Scripts\python.exe test_pdf_export.py
-.\.venv\Scripts\python.exe test_review_language.py
-.\.venv\Scripts\python.exe test_priority_features.py
-.\.venv\Scripts\python.exe test_text_styles.py
-.\.venv\Scripts\python.exe test_font_formats.py
-.\.venv\Scripts\python.exe test_table_editing.py
-.\.venv\Scripts\python.exe test_model_protocols.py
-.\.venv\Scripts\python.exe test_translation_incremental.py
-.\.venv\Scripts\python.exe test_translation_references.py
-```
+2026-10-07 字体与功能检查阶段，本地 **47 个源码回归脚本**最终通过，涵盖编辑、翻译、表格、导出、窗口和资源回收。随后针对翻译跳回开头的问题，**6 个相关回归脚本**通过，覆盖分段完成、流式显示、同步滚动、增量更新和语言切换。翻译协议使用本地模拟 HTTP/SSE 服务。
 
-DOCX 相关测试需要 Pandoc；安装验证和部分图标测试还需要先构建对应产物。
-
-2026-10-07 本地最终通过 **47 个源码回归脚本**，涵盖编辑、翻译、表格、导出、窗口和资源回收；翻译协议使用本地模拟 HTTP/SSE 服务。部分 PDF 视觉测试需在 PATH 中提供 Poppler 的 `pdftoppm`。测试范围、修复清单及实测限制见 [检查报告](docs/validation-2026-10-07.md)。
-
-早期的 `test_render.py`、`test_edit_save.py`、`test_features.py`、`test_tabs.py` 和两个 `bench_*.py` 使用本地论文样本 `02_建模方法_SCI精简重构版.md`。该私人样本未公开，因此这些脚本不能在干净克隆后直接复现；替换样本时还需同步调整与内容数量有关的断言。性能文档中的历史数据也基于该样本。
+测试范围、修复清单及实测限制见 [检查报告](docs/validation-2026-10-07.md)。文档中的脚本名称与日志路径用于记录本地验证过程，下载源码后不包含这些文件。
 
 ## 反馈
 

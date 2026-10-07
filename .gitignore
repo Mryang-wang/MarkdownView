@@ -6,6 +6,12 @@ venv/
 .pytest_cache/
 *.egg-info/
 
+# Local-only regression, benchmark, and verification scripts
+test_*.py
+*_test.py
+bench_*.py
+verify_*.py
+
 # Build output (keep the vendored app/assets/vditor/dist/)
 /build/
 /dist/

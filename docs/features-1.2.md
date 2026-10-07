@@ -1,5 +1,7 @@
 # MarkdownView 1.3：侧栏翻译、双语阅读与本地文档工具
 
+文中提及的测试脚本与日志仅在本地维护，不纳入公开仓库；应用运行和构建不依赖这些文件。
+
 保留 1.2 的 15 项本地文档功能和用户自接模型能力，1.3 将翻译放进编辑页面的右侧栏，新增全文对照阅读，并统一应用弹窗。继续使用现有 Qt、Vditor、KaTeX 和 Pandoc；没有增加模型 SDK、内置模型或字体包。
 
 顶部编辑工具栏取消分组边框和容器，按钮按可用宽度逐个换行，避免整组挤到下一行。已检查 1320、860 和 480 像素宽度下的排列与按钮可达性。
@@ -29,6 +31,8 @@
 顶部主按钮随任务状态显示 **开始翻译 → 停止翻译 → 继续翻译**；停止会取消当前请求，保留已完成批次。继续时从尚未完成的批次开始，不重复提交已完成批次。全部完成后显示“重新翻译”；原文有改动时显示“开始翻译”，提交改动内容。原有“更新改动”入口保持可用。
 
 “左右对照编辑”支持**双向同步滚动**：滚动原文或译文时，另一侧按对应段落及段内进度跟随。源码模式、原文尚未更新或无法匹配区块时，按整篇阅读比例近似对齐。适用于页面缩放和窄窗口上下排列；退出对照编辑后停止联动。同步不移动编辑光标、不修改原文，也不产生模型请求。
+
+每批翻译完成、流式内容更新或译文区块重建时保留当前阅读位置，排版产生的滚动事件不会反向把原文带回顶部。用户在刷新期间继续滚动时优先响应新操作，退出全文模式后取消延迟的位置恢复。新增 `test_translation_scroll_position.py` 覆盖真实分批响应、整篇重排及恢复逐段布局、用户中途滚动、缩放、源码模式、窄窗口和只看译文。
 
 勾选模型设置中的“流式接收译文”后，选区和全文都能**边接收边显示**，不必等待整个请求结束。当前生成部分先显示文字，每约 100 毫秒合并刷新；通过格式检查后再恢复完整 Markdown 和公式排版。流式标记不会显示给用户。服务本身必须支持流式返回；关闭流式或服务器一次性返回 JSON 时，界面无法提前显示尚未收到的文字。
 
@@ -161,26 +165,7 @@ Word 转换与 ZIP 打包放到后台。PDF 从独立快照渲染，使用当前
 
 ## 验证
 
-新增自动化脚本：
-
-```powershell
-.\.venv\Scripts\python.exe test_translation.py
-.\.venv\Scripts\python.exe test_model_protocols.py
-.\.venv\Scripts\python.exe test_model_settings.py
-.\.venv\Scripts\python.exe test_translation_ui.py
-.\.venv\Scripts\python.exe test_translation_streaming.py
-.\.venv\Scripts\python.exe test_translation_incremental.py
-.\.venv\Scripts\python.exe test_document_services.py
-.\.venv\Scripts\python.exe test_workspace_features.py
-.\.venv\Scripts\python.exe test_export_preferences.py
-.\.venv\Scripts\python.exe test_table_editing.py
-.\.venv\Scripts\python.exe test_font_formats.py
-.\.venv\Scripts\python.exe test_text_styles.py
-.\.venv\Scripts\python.exe test_export_text_styles.py
-.\.venv\Scripts\python.exe test_review_performance.py
-.\.venv\Scripts\python.exe test_project_scan_cancellation.py
-.\.venv\Scripts\python.exe test_translation_references.py
-```
+以下为维护者本地验证记录。自动化测试、性能基准和安装验证脚本已从公开仓库移除，保留本地副本并通过 `.gitignore` 排除；下载源码不包含这些脚本和测试输出。
 
 覆盖 Markdown 标记及图片引用、本地模拟 SSE / JSON、错误及截断、取消续译、加密存储、界面事件循环、右侧翻译栏、逐段双语显示、公式／表格／图片、提示词、原文保护、标签页隔离、后台阅读缓存恢复、弹窗深浅主题和中英文、只读与专注、搜索定位、外部冲突、历史上限、文件移动、压缩、ZIP，以及三种编辑模式下的实际 PDF 和 Word 模板输出。上一阶段 1.3 的 28 个源码回归脚本通过，日志位于 `tmp/validation-1.3/`。
 

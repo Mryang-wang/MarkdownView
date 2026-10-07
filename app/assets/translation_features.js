@@ -105,6 +105,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
   let liveTarget = null, livePlaceholder = null, liveUnchanged = false;
   let generation = 0, mode = "selection", sourceText = "", sourceBase = "", resultText = "", layoutText = null, liveSource = null, originalNodes = [], cards = [], running = false;
   let sourceStale = false, scrollFrame = 0, scrollPasses = 0, scrollDriver = "left";
+  let readingPosition = null, readingFrame = 0;
   const synchronizedPositions = new WeakMap();
   function sourcePane() {
     const root = editor.vditor[editor.getCurrentMode()].element;
@@ -150,7 +151,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     if (Math.abs(to.scrollTop - position) > 1) setScroll(to, position);
   }
   function queueScroll(side) {
-    if (!scrollEnabled()) return;
+    if (!scrollEnabled() || readingPosition) return;
     scrollDriver = side; scrollPasses = 2;
     // content-visibility lays out newly visible paragraphs after a scroll. One
     // follow-up frame accounts for their actual heights without rendering all rows.
@@ -161,7 +162,8 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     if (!scrollFrame) scrollFrame = requestAnimationFrame(frame);
   }
   function scrolled(side, event) {
-    if (!scrollEnabled()) return;
+    if (!scrollEnabled() || readingPosition) return;
+    if (scrollFrame && side !== scrollDriver) return;
     const scroller = side === "left" ? sourcePane().scroller : article;
     if (event.target !== scroller) return; // Ignore nested code/image scrolling.
     const expected = synchronizedPositions.get(scroller);
@@ -169,12 +171,46 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     synchronizedPositions.delete(scroller);
     queueScroll(side);
   }
+  function releaseReadingPosition() {
+    cancelAnimationFrame(readingFrame); readingFrame = 0; readingPosition = null;
+  }
+  function preserveReadingPosition() {
+    if (reader.hidden) return;
+    if (!readingPosition) {
+      const pane = sourcePane();
+      readingPosition = {left: pane.scroller, top: pane.scroller.scrollTop, right: article.scrollTop};
+    }
+    cancelAnimationFrame(scrollFrame); scrollFrame = 0;
+    cancelAnimationFrame(readingFrame); readingFrame = 0;
+  }
+  function restoreReadingPosition() {
+    if (!readingPosition) return;
+    function restore() {
+      const saved = readingPosition;
+      if (!saved) return;
+      setScroll(saved.left, saved.top);
+      // The unchanged source is the stable reading anchor, even when the
+      // translation temporarily falls back to a single whole-document block.
+      if (scrollEnabled() && saved.left.scrollHeight > saved.left.clientHeight) syncScroll("left");
+      else setScroll(article, saved.right);
+    }
+    restore();
+    // Recheck after content-visibility has laid out the new viewport. Scroll
+    // events caused by this replacement must never drive the source to the top.
+    readingFrame = requestAnimationFrame(() => {
+      restore();
+      readingFrame = requestAnimationFrame(() => { restore(); releaseReadingPosition(); });
+    });
+  }
   const editorHost = document.getElementById("vditor");
   editorHost.addEventListener("scroll", event => scrolled("left", event), {capture: true, passive: true});
   article.addEventListener("scroll", event => scrolled("right", event), {passive: true});
   [editorHost, article].forEach(host => {
     ["wheel", "pointerdown", "keydown"].forEach(type => host.addEventListener(type, () => {
+      const settling = readingPosition || scrollFrame;
+      releaseReadingPosition(); // An actual user gesture always takes priority.
       synchronizedPositions.delete(host === article ? article : sourcePane().scroller);
+      if (settling) queueScroll(host === article ? "right" : "left");
     }, {passive: true}));
   });
   function values() { return {source: source.value() || "auto detect", target: target.value(), prompt: prompt.value, glossary: glossary.value}; }
@@ -186,6 +222,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     fit();
   }
   function showReader(visible) {
+    releaseReadingPosition();
     reader.hidden = !visible;
     const editing = visible && view.value === "edit";
     document.documentElement.classList.toggle("mdv-translating-document", visible);
@@ -230,7 +267,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     });
     Vditor.mathRender(root, {cdn: "./vditor", math: {engine: "KaTeX"}});
   }
-  function initializeReader() {
+  function initializeReader(resetPosition = true) {
     clearLive(); liveTarget = null;
     originalNodes = Array.from(parsed(sourceText).children);
     cards = []; article.replaceChildren();
@@ -241,8 +278,8 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
       translated.appendChild(el("span", "translation-pending", "等待翻译…"));
       pair.append(original, translated); fragment.appendChild(pair); cards.push({pair, original, translated, html: null});
     });
-    article.appendChild(fragment); finishRender(article); setScroll(article, 0);
-    queueScroll("left");
+    article.appendChild(fragment); finishRender(article);
+    if (resetPosition) { setScroll(article, 0); queueScroll("left"); }
   }
   function renderPairs(final) {
     clearLive(); liveTarget = null;
@@ -257,7 +294,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
       if (!final) liveTarget = b;
       return;
     }
-    if (cards.length !== originalNodes.length) initializeReader();
+    if (cards.length !== originalNodes.length) initializeReader(false);
     const count = nodes.length;
     for (let i = 0; i < count; i++) {
       const card = cards[i], html = nodes[i].outerHTML;
@@ -303,6 +340,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     model.textContent = data.model || tr("尚未连接模型");
   }
   function resetUI() {
+    releaseReadingPosition();
     const hadResult = !!resultText;
     resultText = ""; layoutText = liveSource = null; committedText.nodeValue = partialText.nodeValue = ""; result.replaceChildren(streaming); result.hidden = mode === "full";
     clearLive(); liveTarget = null;
@@ -332,6 +370,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     error(text) { status.textContent = text; readerToggle.disabled = false; show(true); },
     update(data) {
       if (data.generation !== generation) return;
+      if (mode === "full") preserveReadingPosition();
       running = data.state === "running";
       sourceStale = !!data.stale;
       if (Object.prototype.hasOwnProperty.call(data, "result")) resultText = data.result;
@@ -364,6 +403,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
       [copy, save, open].forEach(b => b.disabled = running || !data.done || data.stale);
       open.textContent = tr(data.state === "complete" ? "打开为新文档" : "打开已完成部分");
       save.textContent = tr(data.state === "complete" ? "另存译文…" : "保存已完成部分…");
+      if (mode === "full") restoreReadingPosition();
     },
     active() { return !reader.hidden || !panel.hidden || running; }
   };
