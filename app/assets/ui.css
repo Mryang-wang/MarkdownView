@@ -73,6 +73,20 @@ button:focus-visible { outline: 2px solid var(--muted); outline-offset: 3px; }
 .font-panel-actions button { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; background: var(--surface); color: var(--text); }
 .font-panel-actions button:hover { background: var(--hover); }
 #vditor [data-mdv-font-marker] { display: none; }
+#vditor [data-mdv-paragraph-marker] { display: none; }
+#vditor .vditor-toolbar button[data-type^="mdv-align-"][aria-pressed="true"] {
+  background: var(--hover); color: var(--text); box-shadow: inset 0 0 0 1px var(--muted);
+}
+#mdv-line-value { width: 90px; flex: 1; }
+#mdv-line-panel { padding: 12px; max-height: calc(100vh - 16px); overflow-y: auto; }
+#mdv-line-panel .text-style-notice { margin: 8px 0; }
+#mdv-line-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); max-height: none; overflow: visible; }
+#mdv-line-panel .text-size-input { margin: 10px 0; }
+#mdv-line-panel .text-style-actions { gap: 5px; margin-top: 10px; }
+#mdv-line-panel button { padding: 6px; font-size: 12px; }
+/* Each list item is its own paragraph; a parent's choice must not leak to children. */
+.vditor-reset li > ul, .vditor-reset li > ol { text-align: start; text-align-last: auto;
+  text-justify: auto; line-height: var(--reading-line, 1.9); }
 /* Manual foreground choices also win over a later highlight in previews/PDF. */
 .vditor-reset [data-mdv-text-color] mark { color: inherit !important; }
 .text-style-panel { position: fixed; z-index: 1150; width: 300px; max-width: calc(100vw - 16px); padding: 16px;
@@ -305,8 +319,11 @@ html[data-review-visible="true"] #vditor .vditor-content { margin-right: 286px; 
 .review-tools span { color: var(--muted); font-size: 9px; white-space: nowrap; }
 #mdv-review-add, .review-actions button { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--canvas); color: var(--text); font: inherit; }
 #mdv-review-composer, .review-card { padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--canvas); margin-bottom: 12px; }
-#mdv-review-input { width: 100%; resize: vertical; min-height: 85px; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; line-height: 1.6; }
-#mdv-review-input:focus-visible { outline: 1px solid var(--muted); }
+#mdv-review-input, .review-edit-input { width: 100%; resize: vertical; min-height: 85px; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--text); font: inherit; line-height: 1.6; }
+#mdv-review-input:focus-visible, .review-edit-input:focus-visible { outline: 1px solid var(--muted); }
+.review-card-actions { display: flex; align-items: center; gap: 3px; }
+.review-card-header .review-edit { width: auto; padding: 0 6px; font: inherit; }
+.review-edit-form { margin: 0; }
 #mdv-review-quote, .review-quote { margin: 9px 0 12px; padding: 1px 0 1px 8px; border: 0; border-left: 2px solid #c7bea1; background: transparent; color: var(--muted); font: inherit; text-align: left; max-height: 70px; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere; }
 .review-quote { display: block; width: 100%; cursor: pointer; }
 .review-quote:hover { color: var(--text); }
@@ -315,7 +332,7 @@ html[data-review-visible="true"] #vditor .vditor-content { margin-right: 286px; 
 .review-card small { display: block; margin-top: 8px; }
 .review-card.is-active { border-color: #b9b29e; box-shadow: 0 0 0 1px #b9b29e33; }
 .review-actions { margin-top: 10px; justify-content: flex-end; }
-#mdv-review-submit { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+#mdv-review-submit, .review-actions .review-edit-save { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
 #mdv-review-message { padding: 8px 10px; border-radius: 6px; background: var(--hover); color: var(--text); line-height: 1.6; }
 ::highlight(mdv-comments) { background: #eadba65c; text-decoration: underline; text-decoration-color: #b4a474; }
 ::highlight(mdv-comment-active) { background: #dfc98999; }
@@ -325,4 +342,12 @@ html[data-theme="dark"] ::highlight(mdv-comment-active) { background: #a28a4677;
 @media (max-width: 680px) {
   html[data-review-visible="true"] #vditor .vditor-content { margin-right: 0; }
   #mdv-review-panel { width: min(286px, 90vw); box-shadow: var(--shadow); }
+}
+/* Bound layout work while editing long documents, without removing any content. */
+@media screen {
+  html:not(.mdv-translating-document) .vditor-ir .mdv-long-document > [data-block],
+  html:not(.mdv-translating-document) .vditor-wysiwyg .mdv-long-document > [data-block] {
+    content-visibility: auto;
+    contain-intrinsic-block-size: auto 80px;
+  }
 }

@@ -210,6 +210,11 @@
   "批注": "Comments",
   "批注 {0}": "Comment {0}",
   "删除批注": "Delete comment",
+  "编辑批注": "Edit comment",
+  "编辑": "Edit",
+  "保存修改": "Save changes",
+  "请先保存或取消正在编辑的批注。": "Save or cancel the comment being edited first.",
+  "批注不能超过 10000 个字符。": "Comments cannot exceed 10,000 characters.",
   "删除批注 {0}": "Delete comment {0}",
   "＋ 添加批注": "+ Add comment",
   "输入批注…": "Write a comment…",
@@ -658,5 +663,15 @@
   "22 pt · 二号": "22 pt",
   "24 pt · 小一": "24 pt",
   "26 pt · 一号": "26 pt",
-  "36 pt · 小初": "36 pt"
+  "36 pt · 小初": "36 pt",
+  "左对齐": "Align left",
+  "居中对齐": "Align center",
+  "右对齐": "Align right",
+  "两端对齐": "Justify",
+  "分散对齐": "Distributed",
+  "段落行距": "Paragraph line spacing",
+  "应用到光标所在段落或选中的多个段落。": "Apply to the current paragraph or selected paragraphs.",
+  "常用行距": "Common line spacing",
+  "自定义倍数": "Custom multiplier",
+  "默认行距": "Default spacing"
 }

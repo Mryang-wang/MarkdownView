@@ -138,7 +138,28 @@ local function format_inlines(inlines, inherited)
 end
 
 local function format_block(block)
+  local alignment, spacing = 'inherit', 'inherit'
+  local function paragraph_properties(inlines)
+    for _, inline in ipairs(inlines) do
+      if inline.t == 'Span' and inline.attributes['data-mdv-paragraph'] == 'true' then
+        local style = inline.attributes.style or ''
+        local align = css_property(style, 'text-align')
+        local mapping = {left='left', center='center', right='right', justify='both'}
+        if mapping[align] then
+          alignment = align == 'justify' and css_property(style, 'text-align-last') == 'justify' and 'distribute' or mapping[align]
+        end
+        local line = tonumber(css_property(style, 'line-height'))
+        if line and line >= 0.5 and line <= 5 then spacing = tostring(math.floor(line * 240 + 0.5)) end
+      elseif inline.content and inline.t ~= 'Note' then paragraph_properties(inline.content) end
+    end
+  end
+  paragraph_properties(block.content)
   block.content = format_inlines(block.content, {})
+  if alignment ~= 'inherit' or spacing ~= 'inherit' then
+    -- A temporary empty run carries paragraph properties through the DOCX writer;
+    -- the Python postprocessor merges them into its existing pPr (lists/headings).
+    block.content:insert(pandoc.RawInline('openxml', '<w:r><w:rPr><w:rStyle w:val="MDViewParagraph_' .. alignment .. '_' .. spacing .. '"/></w:rPr></w:r>'))
+  end
   return block
 end
 

@@ -13,6 +13,8 @@ window.installInlineFormats = function (editor, changed, getBridge) {
   var underlineStyles = ["solid", "double", "wavy", "dashed", "dotted"];
   var highlightNames = [];
   var bookmarks = new WeakMap();
+  var parsedMarkers = new WeakMap();
+  var rangeCache = new WeakMap(), dirtyBlocks = new Set(), unbalancedBlocks = new Set(), formatRoot = null;
   var style = document.createElement("style");
   document.head.appendChild(style);
   button.setAttribute("aria-haspopup", "dialog");
@@ -24,11 +26,16 @@ window.installInlineFormats = function (editor, changed, getBridge) {
 
   function root() { return editor.vditor[editor.getCurrentMode()].element; }
   function textNodes(element) {
-    var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT), nodes = [];
+    var rich = editor.getCurrentMode() !== "sv";
+    var walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (node.nodeType === Node.TEXT_NODE) { return NodeFilter.FILTER_ACCEPT; }
+        return rich && node.matches('[data-type="html-inline"], .vditor-ir__marker, .vditor-ir__preview, .vditor-wysiwyg__preview, [data-type$="-marker"]')
+          ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+      }
+    }), nodes = [];
     while (walker.nextNode()) {
       var node = walker.currentNode;
-      if (editor.getCurrentMode() !== "sv" && node.parentElement && node.parentElement.closest(
-          '[data-type="html-inline"], .vditor-ir__marker, .vditor-ir__preview, .vditor-wysiwyg__preview, [data-type$="-marker"]')) { continue; }
       if (node.nodeValue.replace(/\u200b/g, "")) { nodes.push(node); }
     }
     return nodes;
@@ -50,12 +57,22 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     var range = selection.getRangeAt(0);
     if (!root().contains(range.commonAncestorContainer)) { return null; }
     range = range.cloneRange();
-    var prefix = document.createRange(); prefix.selectNodeContents(root());
-    prefix.setEnd(range.startContainer, range.startOffset);
-    var start = plainText(prefix.cloneContents()).length;
-    var selected = plainText(range.cloneContents());
-    bookmarks.set(range, { mode: editor.getCurrentMode(), text: plainText(root()),
-                          selected: selected, start: start, end: start + selected.length });
+    // Record text positions without cloning all preceding paragraphs and KaTeX DOM.
+    var nodes = textNodes(root()), text = nodes.map(function (node) { return node.nodeValue.replace(/\u200b/g, ""); }).join("");
+    function position(container, offset) {
+      var point = document.createRange(); point.setStart(container, offset); point.collapse(true);
+      var total = 0;
+      for (var i = 0; i < nodes.length; i++) {
+        var node = nodes[i];
+        if (node === container) { return total + node.nodeValue.slice(0, offset).replace(/\u200b/g, "").length; }
+        if (point.comparePoint(node, node.length) > 0) { break; }
+        total += node.nodeValue.replace(/\u200b/g, "").length;
+      }
+      return total;
+    }
+    var start = position(range.startContainer, range.startOffset), end = position(range.endContainer, range.endOffset);
+    bookmarks.set(range, { mode: editor.getCurrentMode(), text: text,
+                          selected: text.slice(start, end), start: start, end: end });
     return range;
   }
   function restoreRange(range) {
@@ -283,15 +300,56 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     if (!underlinePanel.hidden) { positionPanel(underlinePanel, underlineButton); }
   });
 
-  function refreshFormats() {
-    if (window.refreshFontFormats) { window.refreshFontFormats(); }
+  function topBlock(node, element) {
+    if (node.nodeType !== Node.ELEMENT_NODE) node = node.parentElement;
+    while (node && node !== element && node.parentElement !== element) node = node.parentElement;
+    return node && node !== element && node.parentElement === element ? node : null;
+  }
+  function balanced(block) {
+    var stack = [], valid = true;
+    block.querySelectorAll('[data-type="html-inline"]').forEach(function (marker) {
+      if (marker.closest('.vditor-ir__preview,.vditor-wysiwyg__preview')) return;
+      var tag = /^<(\/?)(span|u|mark)(?:\s[^>]*)?>$/i.exec(marker.textContent.replace(/\u200b/g, "").trim());
+      if (!tag) return;
+      if (tag[1]) { if (stack.pop() !== tag[2].toLowerCase()) valid = false; }
+      else stack.push(tag[2].toLowerCase());
+    });
+    return valid && !stack.length;
+  }
+  function refreshFormats(incremental) {
+    clearTimeout(refreshTimer);
+    var element = root(), changedBlocks = null;
+    // Keep off-screen rich blocks out of layout on long documents. The browser
+    // retains their measured heights and activates blocks used by selection.
+    element.classList.toggle("mdv-long-document", element.childElementCount >= 160);
+    if (incremental !== true || formatRoot !== element) {
+      unbalancedBlocks.clear();
+      Array.from(element.children).forEach(function (block) { if (!balanced(block)) unbalancedBlocks.add(block); });
+      formatRoot = element;
+    } else {
+      // Cross-paragraph HTML spans retain a full-document pass. Normal edits
+      // repaint only affected top-level blocks, including list/table containers.
+      var hadUnbalancedBlocks = unbalancedBlocks.size > 0;
+      unbalancedBlocks.forEach(function (block) { if (block.parentElement !== element) unbalancedBlocks.delete(block); });
+      dirtyBlocks.forEach(function (block) {
+        if (block.parentElement !== element) return;
+        if (balanced(block)) unbalancedBlocks.delete(block); else unbalancedBlocks.add(block);
+      });
+      if (!hadUnbalancedBlocks && !unbalancedBlocks.size) changedBlocks = new Set(Array.from(dirtyBlocks).filter(function (block) { return block.parentElement === element; }));
+      if (changedBlocks && changedBlocks.size > 8) changedBlocks = null;
+    }
+    dirtyBlocks.clear();
+    var scopes = changedBlocks ? Array.from(changedBlocks) : [element];
+    scopes.forEach(function (scope) {
+      if (window.refreshFontFormats) window.refreshFontFormats(scope);
+      if (window.refreshParagraphFormats) window.refreshParagraphFormats(scope);
+    });
+    if (!scopes.length && window.refreshParagraphFormats) window.refreshParagraphFormats(element);
     if (!CSS.highlights) { return; }
     highlightNames.forEach(function (name) { CSS.highlights.delete(name); });
     highlightNames = [];
-    var groups = {}, underline = new Map(), stack = [], element = root();
-    element.querySelectorAll("[data-mdv-format-marker]").forEach(function (marker) {
-      marker.removeAttribute("data-mdv-format-marker");
-    });
+    var groups = {}, underline = new Map(), stack = [];
+    var activeMarkers = new Set();
     if (editor.getCurrentMode() !== "sv") {
       element.querySelectorAll('[data-type="html-inline"]').forEach(function (marker) {
         if (marker.closest('.vditor-ir__preview, .vditor-wysiwyg__preview')) { return; }
@@ -299,8 +357,12 @@ window.installInlineFormats = function (editor, changed, getBridge) {
         var closing = /^<\/(u|mark)\s*>$/i.exec(tag);
         var opening = /^<(u|mark)(?:\s[^>]*)?>$/i.exec(tag);
         if (opening) {
-          var html = document.createElement("template"); html.innerHTML = tag;
-          var node = html.content.firstElementChild;
+          var cached = parsedMarkers.get(marker);
+          if (!cached || cached.tag !== tag) {
+            var html = document.createElement("template"); html.innerHTML = tag;
+            cached = {tag: tag, node: html.content.firstElementChild}; parsedMarkers.set(marker, cached);
+          }
+          var node = cached.node;
           var selected = node && normalizedColor(node.style.backgroundColor || "");
           // 浏览器会把内联十六进制颜色规范化为 rgb()，读取原属性中的安全色值。
           var attr = /background-color\s*:\s*(#[0-9a-f]{3}(?:[0-9a-f]{3})?)(?:\s*;|\s*$)/i.exec(node && node.getAttribute("style") || "");
@@ -313,15 +375,23 @@ window.installInlineFormats = function (editor, changed, getBridge) {
           while (index >= 0 && stack[index].tag !== closing[1].toLowerCase()) { index--; }
           if (index < 0) { return; }
           var start = stack.splice(index, 1)[0];
-          start.marker.dataset.mdvFormatMarker = "true"; marker.dataset.mdvFormatMarker = "true";
-          var range = document.createRange(); range.setStartAfter(start.marker); range.setEndBefore(marker);
+          activeMarkers.add(start.marker); activeMarkers.add(marker);
+          if (!start.marker.hasAttribute("data-mdv-format-marker")) start.marker.dataset.mdvFormatMarker = "true";
+          if (!marker.hasAttribute("data-mdv-format-marker")) marker.dataset.mdvFormatMarker = "true";
+          var cachedRanges = rangeCache.get(marker), block = topBlock(marker, element);
+          if (!changedBlocks || changedBlocks.has(block) || !cachedRanges || cachedRanges.start !== start.marker) {
+            var range = document.createRange(); range.setStartAfter(start.marker); range.setEndBefore(marker);
+            cachedRanges = {start: start.marker, ranges: []};
+            for (var text of textNodes(range.commonAncestorContainer)) {
+              if (!range.intersectsNode(text)) continue;
+              var textRange = document.createRange(); textRange.selectNodeContents(text);
+              cachedRanges.ranges.push({text: text, range: textRange});
+            }
+            rangeCache.set(marker, cachedRanges);
+          }
           // 只绘制正文文字，不给 Markdown 标记、公式代码和图片重复加背景。
-          var walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_TEXT);
-          while (walker.nextNode()) {
-            var text = walker.currentNode;
-            if (!range.intersectsNode(text) || !text.nodeValue || text.parentElement.closest(
-                '[data-type="html-inline"], .vditor-ir__marker, .vditor-ir__preview, .vditor-wysiwyg__preview, [data-type$="-marker"]')) { continue; }
-            var textRange = document.createRange(); textRange.selectNodeContents(text);
+          for (var entry of cachedRanges.ranges) {
+            var text = entry.text, textRange = entry.range;
             if (start.tag === "u") {
               // 重新选择线型时以最内层为准，避免同一文字同时出现两种下划线。
               var previous = underline.get(text);
@@ -337,6 +407,9 @@ window.installInlineFormats = function (editor, changed, getBridge) {
         }
       });
     }
+    element.querySelectorAll("[data-mdv-format-marker]").forEach(function (marker) {
+      if (!activeMarkers.has(marker)) marker.removeAttribute("data-mdv-format-marker");
+    });
     var rules = [];
     underlineStyles.forEach(function (lineStyle) {
       var ranges = Array.from(underline.values()).filter(function (entry) { return entry.lineStyle === lineStyle; })
@@ -356,12 +429,23 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     });
     var css = rules.join("\n");
     if (style.textContent !== css) { style.textContent = css; }
+    // Wrapping font runs changes the DOM but does not require another full pass.
+    if (formatObserver) formatObserver.takeRecords();
   }
   window.refreshInlineFormats = refreshFormats;
   window.installFontFeatures(editor, {currentRange: currentRange, restoreRange: restoreRange,
     textNodes: textNodes, applyFormat: applyFormat, positionPanel: positionPanel}, getBridge, changed);
-  new MutationObserver(function () {
-    clearTimeout(refreshTimer); refreshTimer = setTimeout(refreshFormats, 30);
-  }).observe(document.querySelector("#vditor .vditor-content"), { subtree: true, childList: true, characterData: true });
+  window.installParagraphFeatures(editor, {currentRange: currentRange, restoreRange: restoreRange,
+    textNodes: textNodes, positionPanel: positionPanel}, changed);
+  var formatObserver = new MutationObserver(function (records) {
+    var element = root();
+    records.forEach(function (record) {
+      var block = topBlock(record.target, element);
+      if (block) dirtyBlocks.add(block);
+      else if (record.target === element) record.addedNodes.forEach(function (node) { if (node.nodeType === Node.ELEMENT_NODE) dirtyBlocks.add(node); });
+    });
+    clearTimeout(refreshTimer); refreshTimer = setTimeout(function () { refreshFormats(true); }, 30);
+  });
+  formatObserver.observe(document.querySelector("#vditor .vditor-content"), { subtree: true, childList: true, characterData: true });
   refreshFormats();
 };

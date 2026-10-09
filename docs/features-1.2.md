@@ -155,6 +155,14 @@ Word 转换与 ZIP 打包放到后台。PDF 从独立快照渲染，使用当前
 
 局部字体、字号和文字颜色使用 HTML `span` 样式保存在 Markdown 中，保存重开后保留，并支持撤销／重做及与加粗、下划线、高亮叠加。手动字色优先于高亮的自动对比色。Word 导出写入可编辑的字体、字号和颜色属性，PDF 保留显示效果；Word 的字号精度为半磅，恢复正文时从像素换算并取最近半磅。软件不附带额外字体包；在其他电脑打开 Word 文件时，需要安装对应字体。其他 Markdown 阅读器是否显示局部格式取决于其对 HTML 样式的支持。
 
+## 段落对齐与行距
+
+顶部提供**左对齐、居中对齐、右对齐、两端对齐、分散对齐**五个独立按钮，以及“段落行距”。在即时渲染或所见即所得模式中，将光标放在段内即可设置当前段落；选中部分文字时作用于所在整段，跨段选择时批量设置。标题、列表项目和表格单元格也可分别设置，代码块保持原样。源码模式可查看格式标记，设置按钮在两种可视编辑模式下使用。
+
+行距预设为 **1、1.15、1.5、2、2.5、3 倍**，可输入 **0.5–5 倍**的自定义值，步进 0.05；“默认行距”移除当前段的单独行距，恢复阅读排版设置。两端对齐保留末行自然排列，分散对齐会将末行也展开。面板支持 `Esc` 取消、深浅主题、中英文和窄窗口。
+
+格式随 Markdown 保存，使用空的 `data-mdv-paragraph` HTML 标记记录，不将标题、列表或表格转换成不可编辑的 HTML 块；支持撤销／重做和保存重开。Word 导出转换为可编辑的原生段落对齐与行距，PDF 按同样样式渲染。标准 Markdown 不包含段落排版规则，其他阅读器通常会忽略这些标记；需要通用的排版效果时请导出 Word 或 PDF。
+
 ## 表格编辑
 
 点击顶部“插入表格”，填写行数（包含首行表头）和列数后插入；支持 1–100 行、1–50 列，三种编辑模式均可使用。按 `Esc` 或“取消”返回正文，不修改内容。
@@ -173,6 +181,6 @@ Word 转换与 ZIP 打包放到后台。PDF 从独立快照渲染，使用当前
 
 本轮实时显示、English 入口和手动增量翻译的 8 个相关脚本通过，整组记录位于 `tmp/validation-streaming/`。新增脚本在服务器尚未结束首段时检查真实界面中的文字增长、未改译文持续显示、不重复渲染公式；并检查句段缓存、400 句改单句、删除／插入／清空／恢复、代码区块、只读切换、生成中再编辑、生成中换语言、模型失效缓存和原文保护。真实模型的小样本请求结果保存在忽略提交的本地测试目录，不含密钥。
 
-当前按要求暂缓生成新版安装包；安装器检查将在修改收尾后执行。
+安装脚本与本地构建路径以 README 中的版本为准；测试脚本、日志和 EXE 均不上传到公开仓库。
 
 接口依据：[Chat Completions 协议示例](https://api-docs.deepseek.com/api/create-chat-completion/)、[OpenAI Responses](https://developers.openai.com/api/reference/python/resources/responses/methods/create)、[Responses 流式事件](https://developers.openai.com/api/docs/guides/streaming-responses)、[Anthropic Messages](https://platform.claude.com/docs/en/api/messages/create)、[Anthropic 流式事件](https://platform.claude.com/docs/en/build-with-claude/streaming)、[Qt 异步网络接口](https://doc.qt.io/qtforpython-6/PySide6/QtNetwork/QNetworkAccessManager.html)、[Windows DPAPI](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)、[Pandoc 样式参考](https://pandoc.org/MANUAL.html#option--reference-doc)。

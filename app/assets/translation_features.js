@@ -179,6 +179,16 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     if (!readingPosition) {
       const pane = sourcePane();
       readingPosition = {left: pane.scroller, top: pane.scroller.scrollTop, right: article.scrollTop};
+      if (cards.length && !sourceStale && editor.getCurrentMode() !== "sv" && scrollEnabled()) {
+        const rect = article.getBoundingClientRect(), scale = rect.height / article.offsetHeight || 1;
+        let low = 0, high = cards.length;
+        while (low < high) {
+          const mid = (low + high) >> 1;
+          if (cards[mid].pair.getBoundingClientRect().bottom <= rect.top + 8) low = mid + 1; else high = mid;
+        }
+        if (low < cards.length) readingPosition.pair = {index: low, count: cards.length,
+          offset: (cards[low].pair.getBoundingClientRect().top - rect.top) / scale};
+      }
     }
     cancelAnimationFrame(scrollFrame); scrollFrame = 0;
     cancelAnimationFrame(readingFrame); readingFrame = 0;
@@ -189,6 +199,13 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
       const saved = readingPosition;
       if (!saved) return;
       setScroll(saved.left, saved.top);
+      if (saved.pair && cards.length === saved.pair.count && !sourceStale && scrollEnabled()) {
+        // Earlier translated rows may change height while the reader is below
+        // them. Keep the visible translated block and its in-block offset.
+        const rect = article.getBoundingClientRect(), scale = rect.height / article.offsetHeight || 1;
+        setScroll(article, article.scrollTop + (cards[saved.pair.index].pair.getBoundingClientRect().top - rect.top) / scale - saved.pair.offset);
+        return;
+      }
       // The unchanged source is the stable reading anchor, even when the
       // translation temporarily falls back to a single whole-document block.
       if (scrollEnabled() && saved.left.scrollHeight > saved.left.clientHeight) syncScroll("left");
@@ -207,8 +224,10 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
   article.addEventListener("scroll", event => scrolled("right", event), {passive: true});
   [editorHost, article].forEach(host => {
     ["wheel", "pointerdown", "keydown"].forEach(type => host.addEventListener(type, () => {
+      if (reader.hidden) return;
       const settling = readingPosition || scrollFrame;
       releaseReadingPosition(); // An actual user gesture always takes priority.
+      if (!scrollEnabled()) return;
       synchronizedPositions.delete(host === article ? article : sourcePane().scroller);
       if (settling) queueScroll(host === article ? "right" : "left");
     }, {passive: true}));
@@ -222,6 +241,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     fit();
   }
   function showReader(visible) {
+    const wasVisible = !reader.hidden;
     releaseReadingPosition();
     reader.hidden = !visible;
     const editing = visible && view.value === "edit";
@@ -231,7 +251,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     window.mdvTranslationReading = visible && !editing;
     if ((visible && !editing) || window.mdvReadOnly) editor.disabled(); else editor.enable();
     if (visible && window.showReview) window.showReview(false);
-    if (!visible) editor.focus();
+    if (!visible && wasVisible) editor.vditor[editor.getCurrentMode()].element.focus({preventScroll: true});
     fit();
     if (editing) queueScroll("left");
   }
@@ -260,6 +280,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     return root;
   }
   function finishRender(root) {
+    window.renderParagraphStyles(root);
     root.querySelectorAll("img").forEach(img => {
       const path = img.getAttribute("src");
       if (sourceBase && path && !/^[a-z][a-z\d+.-]*:|^\/\//i.test(path)) img.src = new URL(path, sourceBase).href;

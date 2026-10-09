@@ -120,7 +120,7 @@ def preprocess_for_texmath(md_text):
 # ---------- 导出 ----------
 
 def _apply_inline_styles(output_path):
-    """补上 Word 原生字体、字号、文字颜色、下划线和 RGB 高亮。"""
+    """补上 Word 原生文字格式、段落对齐和行距。"""
     underline_values = {"solid": "single", "double": "double", "wavy": "wave",
                         "dashed": "dash", "dotted": "dotted"}
 
@@ -179,18 +179,47 @@ def _apply_inline_styles(output_path):
 
     with zipfile.ZipFile(output_path) as source:
         styles = source.read("word/styles.xml").decode("utf-8")
-        document = source.read("word/document.xml").decode("utf-8")
         updated_styles = re.sub(r'<w:style\b[^>]*\bw:styleId="(MDView(?:Highlight|Underline|Font|Text)_\w+)"[^>]*>.*?</w:style>',
                                 lambda match: decorate(match[0], match[1], "</w:style>"), styles, flags=re.DOTALL)
         def decorate_text(match):
             block = match[0]
             inline_style = re.search(r'<w:rStyle\b[^>]*\bw:val="(MDView(?:Highlight|Underline|Font|Text)_\w+)"', block)
             return decorate(block, inline_style[1], "</w:r>") if inline_style else block
-        updated_document = re.sub(r"<w:r\b[^>]*>.*?</w:r>", decorate_text, document, flags=re.DOTALL)
-        if updated_styles == styles and updated_document == document:
+        def decorate_paragraph(match):
+            block = match[0]
+            marker = re.search(r'<w:r><w:rPr><w:rStyle w:val="MDViewParagraph_'
+                               r'(left|center|right|both|distribute|inherit)_(\d+|inherit)"/></w:rPr></w:r>', block)
+            if not marker:
+                return block
+            block = block[:marker.start()] + block[marker.end():]
+            alignment, line = marker.groups()
+            props = re.search(r'<w:pPr>(.*?)</w:pPr>', block, flags=re.DOTALL)
+            content = props[1] if props else ''
+            if alignment != 'inherit':
+                content = re.sub(r'<w:jc\b[^>]*/>', '', content) + f'<w:jc w:val="{alignment}"/>'
+            if line != 'inherit':
+                spacing = re.search(r'<w:spacing\b([^>]*)/>', content)
+                attributes = spacing[1] if spacing else ''
+                attributes = re.sub(r'\s+w:(?:line|lineRule)="[^"]*"', '', attributes)
+                updated_spacing = f'<w:spacing{attributes} w:line="{line}" w:lineRule="auto"/>'
+                content = content[:spacing.start()] + updated_spacing + content[spacing.end():] if spacing else content + updated_spacing
+            properties_xml = '<w:pPr>' + content + '</w:pPr>'
+            if props:
+                return block[:props.start()] + properties_xml + block[props.end():]
+            return re.sub(r'(<w:p\b[^>]*>)', lambda opening: opening[0] + properties_xml, block, count=1)
+        updated = {}
+        if updated_styles != styles:
+            updated["word/styles.xml"] = updated_styles.encode("utf-8")
+        for part in ("word/document.xml", "word/footnotes.xml", "word/endnotes.xml"):
+            if part not in source.namelist():
+                continue
+            original = source.read(part).decode("utf-8")
+            formatted = re.sub(r"<w:r\b[^>]*>.*?</w:r>", decorate_text, original, flags=re.DOTALL)
+            formatted = re.sub(r'<w:p\b[^>]*>.*?</w:p>', decorate_paragraph, formatted, flags=re.DOTALL)
+            if formatted != original:
+                updated[part] = formatted.encode("utf-8")
+        if not updated:
             return
-        updated = {"word/styles.xml": updated_styles.encode("utf-8"),
-                   "word/document.xml": updated_document.encode("utf-8")}
         handle, temporary = tempfile.mkstemp(prefix=".mdview-format-", suffix=".docx",
                                              dir=os.path.dirname(output_path))
         os.close(handle)

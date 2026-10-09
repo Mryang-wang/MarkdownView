@@ -68,6 +68,13 @@
   <p class="text-style-notice" role="status">请先选中需要设置格式的文字。</p>
   <div class="text-style-actions"><button type="button" data-reset>自动颜色</button><button type="button" data-cancel>取消</button><button type="submit" data-apply>应用</button></div>
 </form>
+<form id="mdv-line-panel" class="text-style-panel" role="dialog" aria-label="段落行距" hidden>
+  <strong>段落行距</strong>
+  <p class="text-style-notice">应用到光标所在段落或选中的多个段落。</p>
+  <div id="mdv-line-presets" class="text-size-presets" aria-label="常用行距"></div>
+  <div class="text-size-input"><label for="mdv-line-value">自定义倍数</label><input id="mdv-line-value" type="number" min="0.5" max="5" step="0.05" value="1.5" required></div>
+  <div class="text-style-actions"><button type="button" data-reset>默认行距</button><button type="button" data-cancel>取消</button><button type="submit" data-apply>应用</button></div>
+</form>
 <form id="mdv-table-panel" role="dialog" aria-labelledby="mdv-table-title" hidden>
   <strong id="mdv-table-title">插入表格</strong>
   <div class="table-dimensions">
@@ -146,6 +153,7 @@
 <script src="./inline_formats.js"></script>
 <script src="./font_features.js"></script>
 <script src="./text_style_controls.js"></script>
+<script src="./paragraph_features.js"></script>
 <script src="./review_features.js"></script>
 <script>
 (function () {
@@ -265,17 +273,22 @@
     if (window.refreshReview) { window.refreshReview(); }
   }
 
-  function renderCounter() {
+  function renderCounter(detailed) {
     try {
-      var value = vditor.getValue();
+      var plain = window.editorDocumentText && !window.mdvLightweight ? window.editorDocumentText() : null;
+      // The status bar only needs visible word counts. Serialize Markdown for
+      // source statistics when the details dialog is actually requested.
+      var value = detailed || plain === null ? vditor.getValue() : plain;
       totalStats = computeStats(value);
       // 格式标记、HTML 标签及批注数据不属于正文文字。
-      if (window.editorDocumentText && !window.mdvLightweight) {
-        var plainStats = computeStats(window.editorDocumentText());
+      if (plain !== null) {
+        var plainStats = computeStats(plain);
         ["words", "chars", "charsWithSpaces", "cjk"].forEach(function (key) { totalStats[key] = plainStats[key]; });
       }
       renderSelectionCounter(window.editorSelectedText ? window.editorSelectedText() : "");
-      document.getElementById("empty-hint").hidden = value.trim().length > 0;
+      var activeRoot = vditor.vditor[vditor.getCurrentMode()].element;
+      document.getElementById("empty-hint").hidden = value.trim().length > 0 ||
+        activeRoot.textContent.replace(/\u200b/g, "").trim().length > 0 || !!activeRoot.querySelector("img,hr,table");
       document.getElementById("editor-mode").textContent = {
         ir: "即时渲染", sv: "源代码", wysiwyg: "所见即所得"
       }[vditor.getCurrentMode()];
@@ -283,7 +296,7 @@
   }
 
   function showStatsDialog() {
-    renderCounter();
+    renderCounter(true);
     var stats = selectedText ? computeStats(selectedText) : totalStats;
     document.getElementById("mdview-stats-title").textContent = selectedText ? "选中文字统计" : "文字统计";
     var summary = document.getElementById("mdview-stats-summary");
@@ -386,6 +399,7 @@
       { name: "u-mark", tip: "高亮颜色", tipPosition: "s", icon: ICON_MARK,
         click: function () { window.openHighlightColors(); } },
       "|",
+      ...window.paragraphToolbar,
       "list", "ordered-list", "check", "outdent", "indent", "|",
       "quote", "line", "code", "inline-code", "|",
       "link",
@@ -477,8 +491,7 @@
       notifyDirty();
       updateCounter();
       if (window.refreshFind) { window.refreshFind(); }
-    },
-    blur: function () {}
+    }
   });
 
   function prepareToolbar() {
@@ -634,6 +647,7 @@
     root.id = "mdv-print-root"; root.className = "vditor-reset";
     root.style.setProperty("--mdv-text-color", "#222222");
     root.innerHTML = vditor.vditor.lute.Md2HTML(vditor.getValue());
+    window.renderParagraphStyles(root);
     document.body.appendChild(root);
     root.querySelectorAll("img").forEach(rewriteImgSrc);
     if (options.toc) {
@@ -703,7 +717,7 @@
   // Only pristine reading pages are discarded by Python; edited pages keep undo.
   window.readingStateForCache = function () {
     if (window.translationUI && window.translationUI.active()) { return null; }
-    if (Array.from(document.querySelectorAll("#mdv-find-panel, #mdv-highlight-panel, #mdv-underline-panel, #mdv-table-panel, #mdv-font-panel, #mdv-size-panel, #mdv-color-panel"))
+    if (Array.from(document.querySelectorAll("#mdv-find-panel, #mdv-highlight-panel, #mdv-underline-panel, #mdv-table-panel, #mdv-font-panel, #mdv-size-panel, #mdv-color-panel, #mdv-line-panel"))
         .some(function (panel) { return !panel.hidden; }) || statsBackdrop.classList.contains("is-open") || !document.getElementById("mdv-review-composer").hidden) { return null; }
     function active(type) {
       var control = document.querySelector('#vditor [data-type="' + type + '"]');

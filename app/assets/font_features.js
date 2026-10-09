@@ -5,6 +5,7 @@ window.installFontFeatures = function (editor, selectionTools, getBridge, change
   var options = document.getElementById("mdv-font-options"), notice = document.getElementById("mdv-font-notice");
   var button = document.querySelector('#vditor [data-type="mdv-font"]');
   var families = null, savedRange = null, savedMode = null, hasSelection = false, composing = false;
+  var parsedMarkers = new WeakMap();
   var aliases = {SimSun: "宋体", NSimSun: "新宋体", SimHei: "黑体", KaiTi: "楷体", FangSong: "仿宋",
     "Microsoft YaHei": "微软雅黑", "Microsoft JhengHei": "微软正黑体"};
   var preferred = ["宋体", "SimSun", "微软雅黑", "Microsoft YaHei", "黑体", "SimHei", "楷体", "KaiTi", "仿宋", "FangSong",
@@ -151,31 +152,45 @@ window.installFontFeatures = function (editor, selectionTools, getBridge, change
   document.addEventListener("compositionend", function () { composing = false; setTimeout(window.refreshInlineFormats, 0); });
   window.installTextStyleControls(editor, selectionTools, applyStyles);
 
-  window.refreshFontFormats = function () {
+  window.refreshFontFormats = function (scope) {
     if (composing || editor.getCurrentMode() === "sv") { return; }
-    var element = root(), stack = [], desired = new Map();
+    var element = scope || root(), stack = [], desired = new Map(), activeMarkers = new Set();
     if (!element.querySelector('[data-type="html-inline"],[data-mdv-font-run]')) { return; }
-    var walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT);
-    while (walker.nextNode()) {
-      var node = walker.currentNode;
-      if (node.nodeType === Node.ELEMENT_NODE && node.matches('[data-type="html-inline"]') && !node.closest('.vditor-ir__preview,.vditor-wysiwyg__preview')) {
-        node.removeAttribute("data-mdv-font-marker");
+    function visitMarker(node) {
         var tag = node.textContent.replace(/\u200b/g, "").trim();
         if (/^<span(?:\s[^>]*)?>$/i.test(tag)) {
-          var template = document.createElement("template"); template.innerHTML = tag;
-          var inline = template.content.firstElementChild.style;
-          var own = {}, active = Object.assign({}, stack.length ? stack[stack.length - 1].styles : {});
-          ["fontFamily", "fontSize", "color"].forEach(function (name) { if (inline[name]) { own[name] = inline[name]; } });
+          var cached = parsedMarkers.get(node);
+          if (!cached || cached.tag !== tag) {
+            var template = document.createElement("template"); template.innerHTML = tag;
+            var inline = template.content.firstElementChild.style, own = {};
+            ["fontFamily", "fontSize", "color"].forEach(function (name) { if (inline[name]) { own[name] = inline[name]; } });
+            cached = {tag: tag, styles: own}; parsedMarkers.set(node, cached);
+          }
+          var own = cached.styles, active = Object.assign({}, stack.length ? stack[stack.length - 1].styles : {});
           stack.push({styles: Object.assign(active, own), marker: node, own: Object.keys(own).length > 0});
         } else if (/^<\/span\s*>$/i.test(tag) && stack.length) {
           var opening = stack.pop();
-          if (opening.own) { opening.marker.dataset.mdvFontMarker = "true"; node.dataset.mdvFontMarker = "true"; }
+          if (opening.own) { activeMarkers.add(opening.marker); activeMarkers.add(node); }
         }
-      } else if (node.nodeType === Node.TEXT_NODE && node.nodeValue && !node.parentElement.closest(excluded)) {
+    }
+    var walker = document.createTreeWalker(element, NodeFilter.SHOW_ELEMENT | NodeFilter.SHOW_TEXT, {
+      acceptNode: function (node) {
+        if (node.nodeType === Node.TEXT_NODE) { return NodeFilter.FILTER_ACCEPT; }
+        if (node.matches('[data-type="html-inline"]')) { visitMarker(node); return NodeFilter.FILTER_REJECT; }
+        return node.matches(excluded) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_SKIP;
+      }
+    });
+    while (walker.nextNode()) {
+      var node = walker.currentNode;
+      if (node.nodeValue) {
         var styles = stack.length ? stack[stack.length - 1].styles : null;
         desired.set(node, styles && Object.keys(styles).length ? styles : null);
       }
     }
+    element.querySelectorAll("[data-mdv-font-marker]").forEach(function (node) {
+      if (!activeMarkers.has(node)) node.removeAttribute("data-mdv-font-marker");
+    });
+    activeMarkers.forEach(function (node) { if (!node.hasAttribute("data-mdv-font-marker")) node.dataset.mdvFontMarker = "true"; });
     var remove = Array.from(element.querySelectorAll("[data-mdv-font-run]")).filter(function (span) {
       return span.childNodes.length !== 1 || !desired.get(span.firstChild);
     });

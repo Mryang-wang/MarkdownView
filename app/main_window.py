@@ -1322,6 +1322,17 @@ class MainWindow(QMainWindow):
     def showEvent(self, event):
         super().showEvent(event)
         if os.name == "nt":
+            # Qt's frameless flag omits WS_THICKFRAME, which disables Windows
+            # edge snapping even when dragging with startSystemMove(). Keep the
+            # native resize capability; Qt still draws our borderless client area.
+            # GWL_STYLE is a 32-bit value on both 32-bit and 64-bit Windows.
+            hwnd = ctypes.c_void_p(int(self.winId()))
+            user32 = ctypes.windll.user32
+            style = user32.GetWindowLongW(hwnd, -16)  # GWL_STYLE
+            if not self.isFullScreen() and not style & 0x00040000:  # WS_THICKFRAME
+                user32.SetWindowLongW(hwnd, -16, style | 0x00040000)
+                user32.SetWindowPos(hwnd, None, 0, 0, 0, 0,
+                                    0x0037)  # FRAMECHANGED | NOMOVE | NOSIZE | NOZORDER | NOACTIVATE
             corner_preference = ctypes.c_int(3)  # DWMWCP_ROUNDSMALL
             ctypes.windll.dwmapi.DwmSetWindowAttribute(
                 int(self.winId()), 33, ctypes.byref(corner_preference),
@@ -1892,10 +1903,17 @@ class MainWindow(QMainWindow):
             return
         path = tab.filepath
         if save_as or not path:
-            path, _ = QFileDialog.getSaveFileName(
+            dialog = QFileDialog(
                 self, t("保存 Markdown 文件"),
                 path or tab.recovery_origin or os.path.join(self.project_explorer.root_path, getattr(tab, "suggested_name", "")),
                 t("Markdown 文件 (*.md);;所有文件 (*)"))
+            dialog.setAcceptMode(QFileDialog.AcceptMode.AcceptSave)
+            dialog.setFileMode(QFileDialog.FileMode.AnyFile)
+            # Apply the suffix inside the chooser so its overwrite confirmation
+            # checks the final .md path before we write any content.
+            dialog.setDefaultSuffix("md")
+            path = dialog.selectedFiles()[0] if dialog.exec() else ""
+            dialog.deleteLater()
             if not path:
                 tab.close_after_save = False
                 tab.quit_after_save = False
