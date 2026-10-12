@@ -4,11 +4,12 @@
 
 基于 **Python + PySide6 / Qt WebEngine + Vditor + KaTeX**，支持即时渲染、多文档、批注、草稿恢复、模型翻译，以及 Word / PDF 导出。
 
-**当前源码版本：1.3.4。** 仓库保留应用源码、运行资源、构建配置及说明文档；测试脚本仅在本地维护，不上传 EXE 或安装包。可以按下文从源码运行。
+**当前源码版本：1.3.5。** 仓库保留应用源码、运行资源、构建配置及说明文档；测试脚本仅在本地维护，不上传 EXE 或安装包。可以按下文从源码运行。
 
 - **局部文字格式**：选中一句或一段，修改字体、字号和文字颜色，保存及 Word / PDF 导出保留格式。
 - **段落排版**：左／中／右／两端／分散对齐，常用与自定义倍数行距；设置当前段或选中的多段，保存与 Word / PDF 导出保留。
 - **编辑流畅度**：局部编辑优先刷新改动段落，长文档减少屏幕外段落的排版开销；字数统计和打开工具面板减少重复全文处理。
+- **轻量交互动效**：侧栏平滑展开收起，工具栏按钮换行及高度变化自然过渡，常用编辑面板柔和出现；跟随系统减少动画设置，不增加运行依赖。
 - **批注修复**：添加时保留正文滚动位置；已有批注支持编辑、保存和取消；修复选区结束在段落边界时正文高亮缺失的问题。
 - **Windows 分屏**：拖动顶部菜单栏空白处到屏幕边缘即可贴靠，也支持 `Win + ← / →`；保留原有无边框外观。
 - **保存后缀修复**：新建文档保存及“另存为”未填写扩展名时自动补上 `.md`；已有后缀不重复添加，同名文件仍需确认覆盖。
@@ -27,6 +28,8 @@
 1.3.3 的批注与 Windows 分屏修复见 [验证记录](docs/review-and-window-fixes.md)。
 
 1.3.4 的新建文档保存修复见 [验证记录](docs/save-suffix-fix.md)。
+
+1.3.5 的交互动效与安装包检查见 [交互动效验证记录](docs/ui-motion-validation.md)。
 
 ![MarkdownView 浅色界面](docs/screenshots/light.png)
 
@@ -177,13 +180,13 @@ DOCX 导出通过 Pandoc 将公式转换为 Word 原生 OMML 对象，将表格�
 
 ## 构建 Windows 安装包
 
-安装脚本当前版本为 **1.3.4**，目标为 **Windows 10 1809 或更新版本的 x64 兼容环境**。以下供自行构建使用；本地生成的安装包不上传到仓库。
+安装脚本当前版本为 **1.3.5**，目标为 **Windows 10 1809 或更新版本的 x64 兼容环境**。以下供自行构建使用；本地生成的安装包不上传到仓库。
 
 先完成上述依赖与 Pandoc 安装，再安装 **Inno Setup 6**。在项目根目录执行：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --distpath dist/release-1.3.4 --workpath build/release-1.3.4 MarkdownView.spec
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --distpath dist/release-1.3.5 --workpath build/release-1.3.5 MarkdownView.spec
 
 # 如安装位置不同，请替换为实际的 ISCC.exe 路径
 & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer/MarkdownView.iss

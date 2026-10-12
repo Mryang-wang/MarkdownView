@@ -35,6 +35,7 @@ from .unsaved_dialog import UnsavedChangesDialog
 from .export_dialog import ExportSuccessDialog
 from .project_explorer import ProjectExplorer, TEXT_EXTENSIONS
 from .file_notice import FileNotice
+from .motion import AnimatedSidebar, motion_enabled
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 INDEX_PATH = os.path.join(ASSETS_DIR, "index.html")
@@ -874,11 +875,10 @@ class MainWindow(QMainWindow):
         layout = QHBoxLayout(workspace)
         layout.setContentsMargins(RESIZE_BORDER, 0, RESIZE_BORDER, RESIZE_BORDER)
         layout.setSpacing(0)
-        self.sidebar = QWidget(workspace)
+        self.sidebar = AnimatedSidebar(workspace)
         workspace.sidebar = self.sidebar
         self.sidebar.setObjectName("workspaceSidebar")
-        self.sidebar.setFixedWidth(216)
-        side = QVBoxLayout(self.sidebar)
+        side = QVBoxLayout(self.sidebar.content)
         side.setContentsMargins(14, 16, 14, 0)
         side.setSpacing(6)
 
@@ -1088,7 +1088,7 @@ class MainWindow(QMainWindow):
         refresh_dialog_themes(theme)
 
     def _toggle_sidebar(self, visible):
-        self.sidebar.setVisible(visible)
+        self.sidebar.set_expanded(visible and not self.isFullScreen(), animate=self.isVisible())
         self.centralWidget().update()
         QSettings().setValue("appearance/sidebarVisible", visible)
         for tab in self._tab_list:
@@ -1101,7 +1101,7 @@ class MainWindow(QMainWindow):
         self._schedule_session()
 
     def _sync_document_ui(self, tab):
-        appearance = (self._theme, self._sidebar_action.isChecked(), language())
+        appearance = (self._theme, self._sidebar_action.isChecked(), language(), motion_enabled())
         canvas = QColor("#20201e" if self._theme == "dark" else "#ffffff")
         if tab.view.page().backgroundColor() != canvas:
             tab.view.page().setBackgroundColor(canvas)
@@ -1109,10 +1109,12 @@ class MainWindow(QMainWindow):
             tab.file_notice.refresh(tab.filepath, tab.file_error, tab.file_error_detail, self._ui_icon("file"))
             return
         if tab.ready and tab.appearance != appearance:
+            language_changed = tab.appearance is None or tab.appearance[2] != appearance[2]
             tab.appearance = appearance
-            tab.js("window.setAppearance(%s, %s);" % (
-                json.dumps(appearance[0]), json.dumps(appearance[1])))
-            tab.js("window.setLanguage(%s, %s);" % (json.dumps(appearance[2]), json.dumps(_TRANSLATIONS)))
+            tab.js("window.setAppearance(%s, %s, %s);" % (
+                json.dumps(appearance[0]), json.dumps(appearance[1]), json.dumps(appearance[3])))
+            if language_changed:
+                tab.js("window.setLanguage(%s, %s);" % (json.dumps(appearance[2]), json.dumps(_TRANSLATIONS)))
 
     def _build_app_icon(self):
         """显示应用图标，并以不可见菜单项为“文件”预留空间。"""
@@ -1473,7 +1475,7 @@ class MainWindow(QMainWindow):
             "appearance/sidebarVisible", True, type=bool))
         self._sidebar_action.setShortcut("Ctrl+\\")
         self._sidebar_action.toggled.connect(self._toggle_sidebar)
-        self.sidebar.setVisible(self._sidebar_action.isChecked())
+        self.sidebar.set_expanded(self._sidebar_action.isChecked())
         view_menu.addAction(self._sidebar_action)
         theme_action = view_menu.addAction(t("切换深浅主题"))
         theme_action.setShortcut("Ctrl+Shift+L")
@@ -2174,7 +2176,7 @@ class MainWindow(QMainWindow):
             self._was_maximized_before_fullscreen = self.isMaximized()
             self._normal_geometry_before_fullscreen = self.normalGeometry()
             self.menuBar().hide()
-            self.sidebar.hide()
+            self.sidebar.set_expanded(False)
             self.tabs.tabBar().hide()
             self.statusBar().hide()
             self.showFullScreen()
@@ -2198,7 +2200,7 @@ class MainWindow(QMainWindow):
         else:
             self.setGeometry(self._normal_geometry_before_fullscreen)
         self.menuBar().show()
-        self.sidebar.setVisible(self._sidebar_action.isChecked())
+        self.sidebar.set_expanded(self._sidebar_action.isChecked())
         self.tabs.tabBar().hide()
         self.statusBar().setVisible(bool(self.statusBar().currentMessage()))
 
