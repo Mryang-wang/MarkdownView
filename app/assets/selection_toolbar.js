@@ -10,6 +10,12 @@ window.installSelectionToolbar = function (editor) {
     ["mdv-font-size", ["mdv-size-panel", "openSizePicker"]],
     ["mdv-text-color", ["mdv-color-panel", "openTextColorPicker"]]
   ]);
+  const railActions = {
+    "mdv-comment": {label: "添加批注…", panel: "mdv-review-panel", run: () => window.addReviewComment(),
+      icon: document.querySelector('#vditor [data-type="mdv-review"]').innerHTML},
+    "mdv-translate": {label: "翻译选中内容…", panel: "mdv-translation-panel", run: () => window.requestTranslation(),
+      icon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path fill="none" d="M3 5h12M9 3v2M12 5c-1 6-4 9-8 11M5 8c2 4 4 6 7 8M13 21l4-10 4 10M14.5 17h5"/></svg>'}
+  };
   let savedRange = null, savedMode = null, popup = null;
   let dragging = false, composing = false, dismissed = false, applying = false, timer = 0, frame = 0;
   const root = () => editor.vditor[editor.getCurrentMode()].element;
@@ -85,12 +91,14 @@ window.installSelectionToolbar = function (editor) {
     bar.style.left = Math.round(x) + "px"; bar.style.top = Math.round(y) + "px";
     bar.style.visibility = ""; bar.classList.add("is-visible");
   }
-  ["mdv-font", "mdv-font-size", "bold", "italic", "u-underline", "mdv-text-color", "u-mark"].forEach(name => {
+  ["mdv-font", "mdv-font-size", "bold", "italic", "u-underline", "mdv-text-color", "u-mark", ...Object.keys(railActions)].forEach(name => {
     const original = document.querySelector('#vditor .vditor-toolbar [data-type="' + name + '"]');
+    const rail = railActions[name];
     const button = document.createElement("button");
     button.type = "button"; button.dataset.selectionAction = name;
-    button.innerHTML = original.innerHTML;
-    button.title = original.getAttribute("data-mdv-tip"); button.setAttribute("aria-label", button.title);
+    button.innerHTML = rail ? rail.icon : original.innerHTML;
+    button.title = rail ? rail.label : original.getAttribute("data-mdv-tip"); button.setAttribute("aria-label", button.title);
+    if (rail) button.setAttribute("aria-controls", rail.panel);
     if (popups.has(name)) {
       button.setAttribute("aria-haspopup", "dialog"); button.setAttribute("aria-expanded", "false");
       button.setAttribute("aria-controls", popups.get(name)[0]);
@@ -102,6 +110,8 @@ window.installSelectionToolbar = function (editor) {
       try {
         root().focus({preventScroll: true});
         const selection = getSelection(); selection.removeAllRanges(); selection.addRange(savedRange.cloneRange());
+        // Hand the live selection to the existing rail before it moves focus.
+        if (rail) { dismiss(); rail.run(); return; }
         if (popups.has(name)) {
           const [id, open] = popups.get(name); popup = document.getElementById(id);
           window[open](button); if (popup.hidden) popup = null;
@@ -110,6 +120,7 @@ window.installSelectionToolbar = function (editor) {
       schedule();
     };
     actions.set(name, button); bar.appendChild(button);
+    if (rail) return;
     function sync() {
       button.disabled = original.disabled || original.classList.contains("vditor-menu--disabled");
       if (name === "bold" || name === "italic") button.setAttribute("aria-pressed", String(original.classList.contains("vditor-menu--current")));

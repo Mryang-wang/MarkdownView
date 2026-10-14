@@ -340,6 +340,7 @@ html[data-motion-enabled="false"] #vditor .vditor-toolbar__item > button { trans
 #mdv-selection-toolbar button:disabled { opacity: .35; cursor: default; }
 #mdv-selection-toolbar button:focus-visible { outline-offset: 0; }
 #mdv-selection-toolbar svg { width: 16px; height: 16px; fill: currentColor; }
+#mdv-selection-toolbar [data-selection-action="mdv-comment"] svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 #mdv-selection-toolbar [data-selection-action="mdv-font"] { padding: 6px 8px; }
 #mdv-selection-toolbar [data-selection-action="mdv-font"] svg { width: 12px; height: 12px; }
 @keyframes mdv-selection-enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }

@@ -13,6 +13,9 @@ from .i18n import t
 
 
 def style_dialog(dialog, theme):
+    # File/folder pickers belong to the OS, including its navigation shortcuts.
+    if isinstance(dialog, QFileDialog):
+        return
     dark = theme == "dark"
     bg, panel, fg, muted, line, hover, accent, on_accent = (
         ("#252522", "#20201e", "#e8e8e1", "#a1a197", "#41413a", "#33332e", "#e8e8e1", "#20201e") if dark else
@@ -133,13 +136,15 @@ class AppDialog(QDialog):
 
 def refresh_dialog_themes(theme):
     for widget in QApplication.topLevelWidgets():
-        if isinstance(widget, (AppDialog, QMessageBox, QInputDialog, QFileDialog)):
+        if isinstance(widget, (AppDialog, QMessageBox, QInputDialog)):
             style_dialog(widget, theme)
 
 
 class _DialogTheme(QObject):
     def eventFilter(self, watched, event):
-        if event.type() == QEvent.Type.Show and isinstance(watched, (QMessageBox, QInputDialog, QFileDialog)):
+        if event.type() == QEvent.Type.Polish and isinstance(watched, QMessageBox):
+            watched.setOption(QMessageBox.Option.DontUseNativeDialog, True)
+        if event.type() == QEvent.Type.Show and isinstance(watched, (QMessageBox, QInputDialog)):
             dark = QSettings().value("appearance/theme", "light") == "dark"
             style_dialog(watched, "dark" if dark else "light")
             # System title bars on common Qt dialogs use the same light/dark palette.
@@ -154,7 +159,7 @@ class _DialogTheme(QObject):
 def install_dialog_theme():
     app = QApplication.instance()
     if getattr(app, "_dialog_theme", None): return
-    # Qt file choosers remain local and inherit the app palette in both themes.
-    app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, True)
+    # Keep native file dialogs; only application-owned dialogs receive styling.
+    app.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeDialogs, False)
     app._dialog_theme = _DialogTheme(app)
     app.installEventFilter(app._dialog_theme)

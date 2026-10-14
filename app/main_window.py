@@ -20,7 +20,7 @@ from PySide6.QtGui import QAction, QColor, QDesktopServices, QGuiApplication, QI
 from PySide6.QtSvg import QSvgRenderer
 from shiboken6 import isValid
 from PySide6.QtWebChannel import QWebChannel
-from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
+from PySide6.QtWebEngineCore import QWebEngineContextMenuRequest, QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QApplication, QFileDialog, QMainWindow, QMenu, QMessageBox, QTabBar, QTabWidget,
@@ -83,6 +83,17 @@ class _EditorView(QWebEngineView):
     def contextMenuEvent(self, event):
         menu = self.createStandardContextMenu()
         translate_context_menu(menu)
+        request = self.lastContextMenuRequest()
+        image_folder = None
+        image_url = QUrl()
+        if request and request.mediaType() == QWebEngineContextMenuRequest.MediaType.MediaTypeImage:
+            image_url = QUrl(request.mediaUrl())
+            menu.addSeparator()
+            image_folder = menu.addAction(t("打开图片所在文件夹"))
+            image_folder.setObjectName("openImageFolder")
+            image_folder.setEnabled(image_url.isLocalFile())
+            if not image_url.isLocalFile():
+                image_folder.setToolTip(t("网络或内嵌图片没有本地文件夹。"))
         menu.addSeparator()
         comment = menu.addAction(t("添加批注…"))
         comment.setObjectName("addReviewComment")
@@ -90,7 +101,6 @@ class _EditorView(QWebEngineView):
         comment.setEnabled(False)
         translation = menu.addAction(t("翻译选中内容…"))
         translation.setObjectName("translateSelection")
-        request = self.lastContextMenuRequest()
         position = event.globalPos()
         translation.setEnabled(bool(request and request.selectedText().strip()))
 
@@ -124,6 +134,8 @@ class _EditorView(QWebEngineView):
                 self.page().runJavaScript("window.addReviewComment()")
             elif chosen == translation:
                 self.page().runJavaScript("window.requestTranslation()")
+            elif image_folder is not None and chosen == image_folder:
+                self._open_image_folder(image_url)
             elif chosen in table_actions:
                 self.page().runJavaScript("window.tableAction(" + json.dumps(table_actions[chosen]) + ")")
             menu.deleteLater()
@@ -136,6 +148,15 @@ class _EditorView(QWebEngineView):
             "JSON.stringify({comment: " + ("!!window.canAddReviewComment && window.canAddReviewComment()" if can_comment else "false")
             + ", table: window.tableContext ? window.tableContext(" + str(point.x()) + "," + str(point.y()) + ") : null})",
             lambda value: show_menu(json.loads(value) if value else {}))
+
+    def _open_image_folder(self, url):
+        if not url.isLocalFile():
+            return
+        folder = os.path.dirname(os.path.normpath(url.toLocalFile()))
+        if not os.path.isdir(folder):
+            QMessageBox.warning(self, t("打开失败"), t("文件夹不存在或无法访问：\n{0}").format(folder))
+        elif not QDesktopServices.openUrl(QUrl.fromLocalFile(folder)):
+            QMessageBox.warning(self, t("打开失败"), t("无法打开文件夹：\n{0}").format(folder))
 
 
 class _Workspace(QWidget):
@@ -1062,7 +1083,7 @@ class MainWindow(QMainWindow):
             QScrollBar::handle:vertical:hover {{ background: {text}; }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
-            QMessageBox, QFileDialog {{ background: {bg}; }}
+            QMessageBox {{ background: {bg}; }}
             QPushButton {{ background: {hover}; border: 1px solid {border}; padding: 6px 16px; border-radius: 5px; }}
             QPushButton:hover {{ background: {selected}; }}
         """)
