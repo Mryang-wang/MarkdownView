@@ -4,25 +4,26 @@ window.installTextStyleControls = function (editor, selectionTools, applyStyles)
   var size = document.getElementById("mdv-size-panel"), color = document.getElementById("mdv-color-panel");
   var sizeValue = document.getElementById("mdv-size-value");
   var colorValue = document.getElementById("mdv-text-color-value"), hex = document.getElementById("mdv-text-color-hex");
-  var active = null, range = null, mode = null;
+  var active = null, range = null, mode = null, anchor = null;
   var buttons = new Map([[size, document.querySelector('[data-type="mdv-font-size"]')],
     [color, document.querySelector('[data-type="mdv-text-color"]')]]);
   function editable() { return !window.mdvReadOnly && !window.mdvTranslationReading && editor.vditor[editor.getCurrentMode()].element.isContentEditable; }
   function close(restore) {
     if (!active) { return; }
-    active.hidden = true; buttons.get(active).setAttribute("aria-expanded", "false"); active = null;
+    active.hidden = true; buttons.get(active).setAttribute("aria-expanded", "false"); anchor.setAttribute("aria-expanded", "false"); active = null;
     if (restore && mode === editor.getCurrentMode()) { selectionTools.restoreRange(range); }
     range = null;
   }
-  function open(panel) {
+  function open(panel, trigger) {
     if (!editable()) { return; }
     if (active === panel) { close(true); return; }
     close(true); range = selectionTools.currentRange(); mode = editor.getCurrentMode(); active = panel;
+    anchor = trigger || buttons.get(panel);
     var selected = !!range && !range.collapsed;
     panel.querySelectorAll("button:not([data-cancel])").forEach(function (button) { button.disabled = !selected; });
     panel.querySelector(".text-style-notice").hidden = selected;
-    panel.hidden = false; buttons.get(panel).setAttribute("aria-expanded", "true");
-    selectionTools.positionPanel(panel, buttons.get(panel));
+    panel.hidden = false; buttons.get(panel).setAttribute("aria-expanded", "true"); anchor.setAttribute("aria-expanded", "true");
+    selectionTools.positionPanel(panel, anchor);
     var input = panel === size ? sizeValue : hex; input.focus(); input.select();
   }
   function apply(styles) {
@@ -34,8 +35,8 @@ window.installTextStyleControls = function (editor, selectionTools, applyStyles)
     buttons.get(color).querySelector("rect").setAttribute("fill", value);
     apply({color: value.toLowerCase()});
   }
-  window.openSizePicker = function () { open(size); };
-  window.openTextColorPicker = function () { open(color); };
+  window.openSizePicker = function (trigger) { open(size, trigger); };
+  window.openTextColorPicker = function (trigger) { open(color, trigger); };
   [[9, "小五"], [10.5, "五号"], [12, "小四"], [14, "四号"], [15, "小三"], [16, "三号"],
    [18, "小二"], [22, "二号"], [24, "小一"], [26, "一号"], [36, "小初"]].forEach(function (preset) {
     var button = document.createElement("button"); button.type = "button"; button.dataset.size = preset[0];
@@ -79,7 +80,7 @@ window.installTextStyleControls = function (editor, selectionTools, applyStyles)
     if (event.key === "Escape" && active) { event.preventDefault(); event.stopImmediatePropagation(); close(true); }
   }, true);
   document.addEventListener("pointerdown", function (event) {
-    if (active && !active.contains(event.target) && !buttons.get(active).contains(event.target)) { close(false); }
+    if (active && !active.contains(event.target) && !buttons.get(active).contains(event.target) && !anchor.contains(event.target)) { close(false); }
   }, true);
-  window.addEventListener("resize", function () { if (active) { selectionTools.positionPanel(active, buttons.get(active)); } });
+  window.addEventListener("resize", function () { if (active) { selectionTools.positionPanel(active, anchor); } });
 };

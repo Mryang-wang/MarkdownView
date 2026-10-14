@@ -4,6 +4,7 @@ window.installFontFeatures = function (editor, selectionTools, getBridge, change
   var panel = document.getElementById("mdv-font-panel"), search = document.getElementById("mdv-font-search");
   var options = document.getElementById("mdv-font-options"), notice = document.getElementById("mdv-font-notice");
   var button = document.querySelector('#vditor [data-type="mdv-font"]');
+  var anchor = button;
   var families = null, savedRange = null, savedMode = null, hasSelection = false, composing = false;
   var parsedMarkers = new WeakMap();
   var aliases = {SimSun: "宋体", NSimSun: "新宋体", SimHei: "黑体", KaiTi: "楷体", FangSong: "仿宋",
@@ -48,7 +49,7 @@ window.installFontFeatures = function (editor, selectionTools, getBridge, change
     return leading + window.markdownMath.fromEditor(lute.VditorIRDOM2Md(fragment.innerHTML)).replace(/\n+$/, "") + trailing;
   }
   function close(restore) {
-    panel.hidden = true; button.setAttribute("aria-expanded", "false");
+    panel.hidden = true; button.setAttribute("aria-expanded", "false"); anchor.setAttribute("aria-expanded", "false");
     if (restore && savedMode === editor.getCurrentMode()) { selectionTools.restoreRange(savedRange); }
     savedRange = null;
   }
@@ -101,15 +102,16 @@ window.installFontFeatures = function (editor, selectionTools, getBridge, change
     notice.hidden = hasSelection && options.children.length > 0;
     notice.textContent = window.uiText(hasSelection ? "没有匹配的字体。" : "请先选中需要更换字体的文字。");
     document.getElementById("mdv-font-reset").disabled = !hasSelection;
-    selectionTools.positionPanel(panel, button);
+    selectionTools.positionPanel(panel, anchor);
   }
   button.setAttribute("aria-haspopup", "dialog"); button.setAttribute("aria-expanded", "false"); button.setAttribute("aria-controls", panel.id);
-  window.openFontPicker = function () {
+  window.openFontPicker = function (trigger) {
     if (!panel.hidden) { close(true); return; }
     if (!editable()) { return; }
+    anchor = trigger || button;
     savedRange = selectionTools.currentRange(); savedMode = editor.getCurrentMode();
     hasSelection = !!savedRange && !savedRange.collapsed;
-    panel.hidden = false; button.setAttribute("aria-expanded", "true"); search.value = "";
+    panel.hidden = false; button.setAttribute("aria-expanded", "true"); anchor.setAttribute("aria-expanded", "true"); search.value = "";
     renderOptions(); search.focus();
     if (!families && getBridge()) {
       getBridge().fontFamilies(function (names) {
@@ -145,9 +147,9 @@ window.installFontFeatures = function (editor, selectionTools, getBridge, change
     if (event.key === "Escape" && !panel.hidden) { event.preventDefault(); event.stopImmediatePropagation(); close(true); }
   }, true);
   document.addEventListener("pointerdown", function (event) {
-    if (!panel.hidden && !panel.contains(event.target) && !button.contains(event.target)) { close(false); }
+    if (!panel.hidden && !panel.contains(event.target) && !button.contains(event.target) && !anchor.contains(event.target)) { close(false); }
   }, true);
-  window.addEventListener("resize", function () { if (!panel.hidden) { selectionTools.positionPanel(panel, button); } });
+  window.addEventListener("resize", function () { if (!panel.hidden) { selectionTools.positionPanel(panel, anchor); } });
   document.addEventListener("compositionstart", function () { composing = true; });
   document.addEventListener("compositionend", function () { composing = false; setTimeout(window.refreshInlineFormats, 0); });
   window.installTextStyleControls(editor, selectionTools, applyStyles);

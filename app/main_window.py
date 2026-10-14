@@ -35,7 +35,7 @@ from .unsaved_dialog import UnsavedChangesDialog
 from .export_dialog import ExportSuccessDialog
 from .project_explorer import ProjectExplorer, TEXT_EXTENSIONS
 from .file_notice import FileNotice
-from .motion import AnimatedSidebar, motion_enabled
+from .motion import AnimatedSidebar, EditorViewport, motion_enabled
 
 ASSETS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets")
 INDEX_PATH = os.path.join(ASSETS_DIR, "index.html")
@@ -514,6 +514,7 @@ class MainWindow(QMainWindow):
         self._tab_list = []
         self._detached_windows = set()
         self._was_maximized_before_fullscreen = False
+        self._title_drag_start = None
         self._resize_drag_edges = Qt.Edge(0)
         self._resize_drag_start = None
         self._resize_drag_geometry = None
@@ -852,6 +853,8 @@ class MainWindow(QMainWindow):
             "project": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/><path d="M8 13h8M12 9v8"/>',
             "collapse": '<path d="M8 3h11a2 2 0 0 1 2 2v11M5 7h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2ZM7 14h6"/>',
             "close": '<path d="m6 6 12 12M18 6 6 18"/>',
+            "maximize": '<rect x="5" y="5" width="14" height="14"/>',
+            "restore": '<path d="M9 7V4h11v11h-3"/><rect x="4" y="8" width="12" height="12"/>',
             "folder": '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
             "file": '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/>',
             "sidebar": '<rect x="3" y="4" width="18" height="16" rx="3"/><path d="M9 4v16"/>',
@@ -972,7 +975,10 @@ class MainWindow(QMainWindow):
         editor_column = QVBoxLayout()
         editor_column.setContentsMargins(0, 0, 0, 0)
         editor_column.setSpacing(0)
-        editor_column.addWidget(self.tabs, 1)
+        editor_viewport = EditorViewport(self.tabs, workspace)
+        self.sidebar.motionStarted.connect(editor_viewport.begin_motion)
+        self.sidebar.motionFinished.connect(editor_viewport.end_motion)
+        editor_column.addWidget(editor_viewport, 1)
         self.editor_status = _EditorStatusBar(workspace)
         self.editor_status.counter.clicked.connect(
             lambda: self._cur_js("window.showStatsDialog()"))
@@ -994,7 +1000,7 @@ class MainWindow(QMainWindow):
         self.setStyleSheet(f"""
             QWidget {{ color: {text}; font-family: 'Segoe UI', 'Microsoft YaHei'; font-size: 12px; }}
             QMainWindow {{ background: {bg}; }}
-            QMenuBar {{ background: {panel}; border: 0; padding: 0 8px; }}
+            QMenuBar {{ background: {panel}; border: 0; padding: 4px 8px 0; }}
             QMenuBar::item {{ background: transparent; padding: 4px 10px; border-radius: 5px; }}
             QMenuBar::item:selected {{ background: {hover}; }}
             QMenu {{ background: {bg}; border: 1px solid {border}; border-radius: 8px; padding: 6px; }}
@@ -1060,8 +1066,9 @@ class MainWindow(QMainWindow):
             QPushButton {{ background: {hover}; border: 1px solid {border}; padding: 6px 16px; border-radius: 5px; }}
             QPushButton:hover {{ background: {selected}; }}
         """)
-        self.menuBar().setFixedHeight(30)
+        self.menuBar().setFixedHeight(34)
         self.tab_bar.setFixedHeight(30)
+        self._sync_window_controls()
         for name, button in self._sidebar_buttons.items():
             button.setIcon(self._ui_icon(name))
         self._sidebar_collapse_button.setIcon(self._ui_icon("sidebar"))
@@ -1147,12 +1154,26 @@ class MainWindow(QMainWindow):
             button.setFixedSize(38, 30)
             button.setToolTip(tip)
             button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            if callback == self._toggle_window_maximized:
+                self._maximize_button = button
+                button.setObjectName("windowMaximize")
+                button.setText("")
+                button.setIconSize(QSize(16, 16))
             if close_button:
                 button.setProperty("closeButton", True)
             button.clicked.connect(callback)
             layout.addWidget(button)
         self._window_controls = controls
         self.menuBar().setCornerWidget(controls, Qt.Corner.TopRightCorner)
+
+    def _sync_window_controls(self):
+        if not hasattr(self, "_maximize_button"):
+            return
+        maximized = self.isMaximized()
+        self._maximize_button.setIcon(self._ui_icon("restore" if maximized else "maximize"))
+        label = t("还原窗口" if maximized else "最大化窗口")
+        self._maximize_button.setToolTip(label)
+        self._maximize_button.setAccessibleName(label)
 
     def _toggle_window_maximized(self):
         if self.isMaximized():
@@ -1223,11 +1244,35 @@ class MainWindow(QMainWindow):
     def changeEvent(self, event):
         super().changeEvent(event)
         if event.type() == QEvent.Type.WindowStateChange and self.centralWidget():
+            self._title_drag_start = None
             border = 0 if self.isMaximized() or self.isFullScreen() else RESIZE_BORDER
             self.centralWidget().layout().setContentsMargins(border, 0, border, border)
             self._update_resize_handles(visibility=True)
+            self._sync_window_controls()
 
     def eventFilter(self, watched, event):
+        if self._title_drag_start is not None:
+            if event.type() in (QEvent.Type.Hide, QEvent.Type.WindowDeactivate, QEvent.Type.MouseButtonRelease):
+                self._title_drag_start = None
+            elif watched is self.menuBar() and event.type() == QEvent.Type.MouseMove:
+                start = self._title_drag_start
+                if not event.buttons() & Qt.MouseButton.LeftButton:
+                    self._title_drag_start = None
+                elif (event.globalPosition().toPoint() - start).manhattanLength() >= QApplication.startDragDistance():
+                    self._title_drag_start = None
+                    # A frameless maximized HWND can be moved without being
+                    # restored. Keep the grab point under the pointer, then let
+                    # Windows handle the rest of the gesture, including Snap.
+                    offset = self.mapFromGlobal(start)
+                    ratio = max(0.0, min(1.0, offset.x() / max(1, self.width())))
+                    restored_width = self.normalGeometry().width()
+                    self.showNormal()
+                    # The Windows resize event can arrive after showNormal().
+                    self.move(event.globalPosition().toPoint() - QPoint(round(restored_width * ratio), offset.y()))
+                    handle = self.windowHandle()
+                    if handle:
+                        handle.startSystemMove()
+                return True
         if (event.type() == QEvent.Type.Wheel
                 and event.modifiers() & Qt.KeyboardModifier.ControlModifier
                 and not self._closed):
@@ -1291,17 +1336,23 @@ class MainWindow(QMainWindow):
         if (watched is self.menuBar()
                 and event.type() == QEvent.Type.MouseButtonDblClick
                 and event.button() == Qt.MouseButton.LeftButton
+                and not self.isFullScreen()
                 and self.menuBar().actionAt(event.position().toPoint()) is None):
+            self._title_drag_start = None
             self._toggle_window_maximized()
             return True
         if (watched is self.menuBar()
                 and event.type() == QEvent.Type.MouseButtonPress
                 and event.button() == Qt.MouseButton.LeftButton
+                and not self.isFullScreen()
                 and self.menuBar().actionAt(event.position().toPoint()) is None
                 and not self._window_controls.geometry().contains(event.position().toPoint())):
-            handle = self.windowHandle()
-            if handle:
-                handle.startSystemMove()
+            if self.isMaximized():
+                self._title_drag_start = event.globalPosition().toPoint()
+            else:
+                handle = self.windowHandle()
+                if handle:
+                    handle.startSystemMove()
             return True
         return super().eventFilter(watched, event)
 

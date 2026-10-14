@@ -256,6 +256,7 @@ window.installTranslation = function (editor, getBridge, markdownHTML, rewriteIm
     if (editing) queueScroll("left");
   }
   function fit() {
+    if (panel.hidden && reader.hidden) return;
     const top = document.querySelector("#vditor .vditor-toolbar").getBoundingClientRect().bottom;
     const bottom = document.getElementById("editor-statusbar").getBoundingClientRect().height;
     panel.style.top = (reader.hidden ? top : 0) + "px";

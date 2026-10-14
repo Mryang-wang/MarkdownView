@@ -6,6 +6,12 @@ window.installInlineFormats = function (editor, changed, getBridge) {
   var hexInput = document.getElementById("mdv-highlight-hex");
   var error = document.getElementById("mdv-highlight-error");
   var button = document.querySelector('#vditor button[data-type="u-mark"]');
+  var colorButton = document.createElement("button");
+  colorButton.type = "button"; colorButton.dataset.type = "u-mark-color";
+  colorButton.innerHTML = '<svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
+  colorButton.onclick = function () { window.openHighlightColors(); };
+  colorButton.onmousedown = function (event) { event.preventDefault(); };
+  button.parentElement.appendChild(colorButton);
   var savedRange = null, savedMode = null, color = "#ffe58f", refreshTimer = null;
   var underlinePanel = document.getElementById("mdv-underline-panel");
   var underlineButton = document.querySelector('#vditor button[data-type="u-underline-style"]');
@@ -17,9 +23,9 @@ window.installInlineFormats = function (editor, changed, getBridge) {
   var rangeCache = new WeakMap(), dirtyBlocks = new Set(), unbalancedBlocks = new Set(), formatRoot = null;
   var style = document.createElement("style");
   document.head.appendChild(style);
-  button.setAttribute("aria-haspopup", "dialog");
-  button.setAttribute("aria-expanded", "false");
-  button.setAttribute("aria-controls", panel.id);
+  colorButton.setAttribute("aria-haspopup", "dialog");
+  colorButton.setAttribute("aria-expanded", "false");
+  colorButton.setAttribute("aria-controls", panel.id);
   underlineButton.setAttribute("aria-haspopup", "dialog");
   underlineButton.setAttribute("aria-expanded", "false");
   underlineButton.setAttribute("aria-controls", underlinePanel.id);
@@ -162,8 +168,8 @@ window.installInlineFormats = function (editor, changed, getBridge) {
   }
 
   function closePanel(restore) {
-    panel.hidden = true; button.setAttribute("aria-expanded", "false");
-    if (restore) { restoreRange(savedRange); }
+    panel.hidden = true; colorButton.setAttribute("aria-expanded", "false");
+    if (restore && savedMode === editor.getCurrentMode()) { restoreRange(savedRange); }
     savedRange = null;
   }
   function closeUnderlinePanel(restore) {
@@ -191,13 +197,25 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     color = selected;
     picker.value = color; hexInput.value = color.toUpperCase();
     hexInput.removeAttribute("aria-invalid"); error.hidden = true;
-    button.querySelector("rect").setAttribute("fill", color);
-    button.querySelector("text").setAttribute("fill", foreground(color));
-    if (savedMode === editor.getCurrentMode() && savedRange) {
+    document.querySelectorAll('button[data-type="u-mark"],button[data-selection-action="u-mark"]').forEach(function (control) {
+      control.querySelector("rect").setAttribute("fill", color);
+      control.querySelector("text").setAttribute("fill", foreground(color));
+    });
+    if (!window.mdvReadOnly && !window.mdvTranslationReading && root().isContentEditable &&
+        savedMode === editor.getCurrentMode() && savedRange && !savedRange.collapsed) {
       applyFormat('<mark style="background-color: ' + color + '; color: ' + foreground(color) + '">', '</mark>', savedRange);
     }
     closePanel(false);
   }
+  window.applyHighlight = function () {
+    if (window.mdvReadOnly || window.mdvTranslationReading || !root().isContentEditable) { return; }
+    if (!panel.hidden) { closePanel(true); }
+    if (!underlinePanel.hidden) { closeUnderlinePanel(true); }
+    var range = currentRange();
+    if (range && !range.collapsed) {
+      applyFormat('<mark style="background-color: ' + color + '; color: ' + foreground(color) + '">', '</mark>', range);
+    }
+  };
   window.applyUnderline = function () {
     if (!underlinePanel.hidden) { closeUnderlinePanel(true); }
     if (!panel.hidden) { closePanel(true); }
@@ -244,17 +262,18 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     if (next !== undefined) { event.preventDefault(); options[next].focus(); }
   });
   window.openHighlightColors = function () {
+    if (window.mdvReadOnly || window.mdvTranslationReading || !root().isContentEditable) { return; }
     if (!panel.hidden) { closePanel(true); return; }
     if (!underlinePanel.hidden) { closeUnderlinePanel(true); }
     savedRange = currentRange(); savedMode = editor.getCurrentMode();
     picker.value = color; hexInput.value = color.toUpperCase();
     hexInput.removeAttribute("aria-invalid"); error.hidden = true;
-    panel.hidden = false; button.setAttribute("aria-expanded", "true");
+    panel.hidden = false; colorButton.setAttribute("aria-expanded", "true");
     panel.querySelectorAll("[data-color]").forEach(function (swatch) {
       var selected = swatch.dataset.color === color;
       swatch.setAttribute("aria-pressed", String(selected)); swatch.textContent = selected ? "✓" : "";
     });
-    positionPanel(panel, button);
+    positionPanel(panel, colorButton);
     panel.querySelector("button").focus({ preventScroll: true });
   };
   [["黄色", "#ffe58f"], ["绿色", "#bbf7d0"], ["蓝色", "#bfdbfe"],
@@ -290,13 +309,13 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     }
   }, true);
   document.addEventListener("pointerdown", function (event) {
-    if (!panel.hidden && !panel.contains(event.target) && !button.contains(event.target)) { closePanel(false); }
+    if (!panel.hidden && !panel.contains(event.target) && !button.contains(event.target) && !colorButton.contains(event.target)) { closePanel(false); }
     if (!underlinePanel.hidden && !underlinePanel.contains(event.target) && !underlineButton.contains(event.target)) {
       closeUnderlinePanel(false);
     }
   }, true);
   window.addEventListener("resize", function () {
-    if (!panel.hidden) { positionPanel(panel, button); }
+    if (!panel.hidden) { positionPanel(panel, colorButton); }
     if (!underlinePanel.hidden) { positionPanel(underlinePanel, underlineButton); }
   });
 
@@ -438,6 +457,12 @@ window.installInlineFormats = function (editor, changed, getBridge) {
   window.installParagraphFeatures(editor, {currentRange: currentRange, restoreRange: restoreRange,
     textNodes: textNodes, positionPanel: positionPanel}, changed);
   var formatObserver = new MutationObserver(function (records) {
+    // Live Highlight ranges already follow text insertion/deletion. Plain text
+    // changes do not require rescanning every font/underline marker in the file.
+    if (records.every(function (record) {
+      return record.type === "characterData" && record.target.parentElement &&
+        !record.target.parentElement.closest('[data-type="html-inline"]');
+    })) return;
     var element = root();
     records.forEach(function (record) {
       var block = topBlock(record.target, element);

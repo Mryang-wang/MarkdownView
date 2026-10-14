@@ -156,6 +156,8 @@
 <script src="./paragraph_features.js"></script>
 <script src="./review_features.js"></script>
 <script src="./motion.js"></script>
+<script src="./editor_performance.js"></script>
+<script src="./selection_toolbar.js"></script>
 <script>
 (function () {
   "use strict";
@@ -282,7 +284,7 @@
       var value = detailed || plain === null ? vditor.getValue() : plain;
       totalStats = computeStats(value);
       // 格式标记、HTML 标签及批注数据不属于正文文字。
-      if (plain !== null) {
+      if (plain !== null && detailed) {
         var plainStats = computeStats(plain);
         ["words", "chars", "charsWithSpaces", "cjk"].forEach(function (key) { totalStats[key] = plainStats[key]; });
       }
@@ -397,8 +399,8 @@
       "|",
       wrapBtn("u-sup", "上标 ^文本^", "^", "^", ICON_SUP),
       wrapBtn("u-sub", "下标 ~文本~", "~", "~", ICON_SUB),
-      { name: "u-mark", tip: "高亮颜色", tipPosition: "s", icon: ICON_MARK,
-        click: function () { window.openHighlightColors(); } },
+      { name: "u-mark", tip: "高亮文字", tipPosition: "s", icon: ICON_MARK,
+        click: function () { window.applyHighlight(); } },
       "|",
       ...window.paragraphToolbar,
       "list", "ordered-list", "check", "outdent", "indent", "|",
@@ -460,6 +462,7 @@
       prepareToolbar();
       vditor.vditor.lute.SetSup(true);
       vditor.vditor.lute.SetSub(true);
+      window.installEditorPerformance(vditor);
       window.installInlineFormats(vditor, function () {
         updateCounter(); notifyDirty();
         if (window.refreshFind) { window.refreshFind(); }
@@ -484,6 +487,7 @@
       updateCounter();
       applyToolbarTooltips();
       bindToolbarTooltips();
+      window.installSelectionToolbar(vditor);
       window.installMotion();
       document.querySelector("#vditor .vditor-toolbar").addEventListener("click", function () {
         setTimeout(updateCounter, 0);
@@ -507,7 +511,7 @@
     var tips = {
       "mdv-sidebar": "展开侧边栏 · Ctrl+\\", "emoji": "表情", "headings": "标题", "mdv-font": "选中文字字体", "mdv-font-size": "选中文字字号", "mdv-text-color": "文字颜色", "bold": "加粗", "italic": "斜体",
       "u-underline": "下划线", "u-underline-style": "下划线样式", "u-strike": "删除线 ~~文本~~", "u-sup": "上标 ^文本^",
-      "u-sub": "下标 ~文本~", "u-mark": "高亮颜色", "list": "无序列表",
+      "u-sub": "下标 ~文本~", "u-mark": "高亮文字", "u-mark-color": "高亮颜色", "list": "无序列表",
       "ordered-list": "有序列表", "check": "任务列表", "outdent": "减少缩进", "indent": "增加缩进",
       "quote": "引用", "line": "分隔线", "code": "代码块", "inline-code": "行内代码",
       "link": "插入链接", "insert-image": "插入图片", "table": "插入表格", "undo": "撤销",

@@ -4,8 +4,9 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
   var panel = document.getElementById("mdv-review-panel"), composer = document.getElementById("mdv-review-composer");
   var input = document.getElementById("mdv-review-input"), list = document.getElementById("mdv-review-list");
   var message = document.getElementById("mdv-review-message"), toolbar = document.querySelector('[data-type="mdv-review"]');
-  var comments = [], activeId = null, editingId = null, pending = null, remembered = null, previous = null, previousMd = null;
+  var comments = [], activeId = null, editingId = null, pending = null, remembered = null, previous = null, previousMode = null;
   var timer = null, selectionTimer = null, loading = false;
+  var cachedIndex = null, cachedRoot = null, cachedMode = null, reviewObserver = null;
   var excluded = '.vditor-ir__preview,.vditor-wysiwyg__preview,.vditor-ir__marker,[data-type$="-marker"],[data-type="html-inline"],[data-type="newline"],script,style,textarea';
   function root() { return editor.vditor[editor.getCurrentMode()].element; }
   function indexText(element) {
@@ -31,6 +32,15 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
       segments.push({node: node, start: start, end: text.length}); lastBlock = block;
     }
     return {text: text, segments: segments};
+  }
+  function documentIndex() {
+    var element = root(), mode = editor.getCurrentMode();
+    // Synchronous saves/selections can precede the mutation callback.
+    if (reviewObserver && reviewObserver.takeRecords().length) cachedIndex = null;
+    if (!cachedIndex || cachedRoot !== element || cachedMode !== mode) {
+      cachedIndex = indexText(element); cachedRoot = element; cachedMode = mode;
+    }
+    return cachedIndex;
   }
   function nodeOffset(node, offset) {
     var count = 0;
@@ -79,14 +89,14 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
   window.canAddReviewComment = function () {
     return root().contains(document.activeElement) && !!selectedText().trim();
   };
-  window.editorDocumentText = function () { return indexText(root()).text; };
+  window.editorDocumentText = function () { return documentIndex().text; };
   function anchorAt(data, start, end) {
     return {start: start, end: end, quote: data.text.slice(start, end), before: data.text.slice(Math.max(0, start - 32), start), after: data.text.slice(end, end + 32), detached: false};
   }
   function selectionAnchor() {
     var range = selectedRange();
     if (!range || range.collapsed) { return null; }
-    var data = indexText(root());
+    var data = documentIndex();
     var start = position(data, range.startContainer, range.startOffset), end = position(data, range.endContainer, range.endOffset);
     if (end <= start || !data.text.slice(start, end).trim()) { return null; }
     return anchorAt(data, start, end);
@@ -144,10 +154,11 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
     var range = current && rangeFor(data, current.anchor);
     if (range) { CSS.highlights.set("mdv-comment-active", new Highlight(range)); }
   }
-  function refresh() {
+  function refresh(forcePaint) {
     clearTimeout(timer); timer = null;
     if (loading || (!comments.length && !pending && !remembered)) { return; }
-    var data = indexText(root()), md = editor.getValue(), edited = previousMd !== null && md !== previousMd;
+    var mode = editor.getCurrentMode(), data = documentIndex(), edited = previousMode === mode;
+    if (previous === data && !forcePaint) return;
     // A format/toolbar refresh can rebuild DOM nodes without changing the text.
     // Repaint using the new nodes, but retain the already-resolved anchors.
     var textChanged = !previous || previous.text !== data.text;
@@ -160,7 +171,7 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
       if (edited && previous) { rebase(a, data, change); }
       else if (textChanged) { locate(a, data); }
     });
-    previous = data; previousMd = md; paint(data); renderList();
+    previous = data; previousMode = mode; paint(data); renderList();
   }
   window.refreshReview = function () {
     if (comments.length || pending || remembered) { clearTimeout(timer); timer = setTimeout(refresh, 120); }
@@ -170,12 +181,13 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
   window.showReview = function (visible) {
     if (visible && window.translationUI && window.translationUI.active()) { window.translationUI.leave(); }
     panel.hidden = !visible; document.documentElement.setAttribute("data-review-visible", String(!!visible));
+    if (visible) fitPanel();
     toolbar.classList.toggle("vditor-menu--current", !!visible); toolbar.setAttribute("aria-expanded", String(!!visible));
     if (!visible) { notice(""); }
-    if (comments.length) { refresh(); } else { paint(indexText(root())); }
+    if (comments.length) { refresh(true); } else { paint(documentIndex()); }
   };
   function focusComment(comment) {
-    activeId = comment.id; window.showReview(true); var data = indexText(root()), range = rangeFor(data, comment.anchor);
+    activeId = comment.id; window.showReview(true); var data = documentIndex(), range = rangeFor(data, comment.anchor);
     if (range) {
       root().focus({preventScroll: true}); var selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
       var scroller = root().scrollHeight > root().clientHeight ? root() : root().parentElement;
@@ -188,31 +200,45 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
   function renderList() {
     // Keep existing cards and textareas attached so anchor refreshes cannot
     // interrupt typing, IME composition or the panel's scroll position.
-    var signature = JSON.stringify([editingId, comments.map(function (c) { return [c.id, c.text, c.anchor.quote, c.anchor.detached, c.id === activeId]; })]);
+    var ordered = comments.slice().sort(function (a, b) {
+      if (!!a.anchor.detached !== !!b.anchor.detached) return a.anchor.detached ? 1 : -1;
+      if (a.anchor.detached) return 0;
+      return a.anchor.start - b.anchor.start || a.anchor.end - b.anchor.end;
+    });
+    var signature = JSON.stringify([editingId, ordered.map(function (c) { return [c.id, c.text, c.anchor.quote, c.anchor.detached, c.id === activeId]; })]);
     if (list.dataset.signature === signature) { return; } list.dataset.signature = signature;
     var cards = new Map(Array.from(list.children).map(function (card) { return [card.dataset.commentId, card]; }));
     var ids = new Set(comments.map(function (comment) { return comment.id; }));
     cards.forEach(function (card, id) { if (!ids.has(id)) card.remove(); });
     document.getElementById("mdv-review-count").textContent = comments.length;
     document.getElementById("mdv-review-empty").hidden = !!comments.length;
-    comments.forEach(function (comment, i) {
+    ordered.forEach(function (comment, i) {
       var card = cards.get(comment.id);
       if (!card) {
         card = document.createElement("article"); card.className = "review-card"; card.dataset.commentId = comment.id;
         var header = document.createElement("div"); header.className = "review-card-header";
         var title = document.createElement("span"); title.className = "review-card-title";
         var actions = document.createElement("div"); actions.className = "review-card-actions";
-        var edit = document.createElement("button"); edit.type = "button"; edit.className = "review-edit"; edit.textContent = window.uiText("编辑"); edit.title = window.uiText("编辑批注");
-        edit.onclick = function (event) { event.stopPropagation(); window.editReviewComment(comment.id); };
         var remove = document.createElement("button"); remove.type = "button"; remove.className = "review-delete"; remove.textContent = "×"; remove.title = window.uiText("删除批注");
         remove.onclick = function (event) { event.stopPropagation(); window.deleteReviewComment(comment.id); };
-        actions.append(edit, remove); header.append(title, actions);
+        actions.append(remove); header.append(title, actions);
         var quote = document.createElement("button"); quote.type = "button"; quote.className = "review-quote"; quote.title = window.uiText("定位原文");
         quote.onclick = function (event) { event.stopPropagation(); var current = comments.find(function (c) { return c.id === comment.id; }); if (current) focusComment(current); };
-        var body = document.createElement("p"); card.append(header, quote, body);
+        var body = document.createElement("p"), editable = document.createElement("div");
+        editable.className = "review-body"; editable.tabIndex = 0; editable.setAttribute("role", "button");
+        editable.setAttribute("aria-label", window.uiText("编辑批注")); editable.title = window.uiText("双击编辑批注，也可按 Enter");
+        editable.append(body); card.append(header, quote, editable);
+        editable.ondblclick = function (event) {
+          event.preventDefault(); event.stopPropagation(); window.editReviewComment(comment.id);
+        };
+        editable.onkeydown = function (event) {
+          if (!event.isComposing && (event.key === "Enter" || event.key === " ")) {
+            event.preventDefault(); event.stopPropagation(); window.editReviewComment(comment.id);
+          }
+        };
         card.onclick = function (event) {
           if (event.target.closest("button,form")) return;
-          activeId = comment.id; renderList(); paint(indexText(root()));
+          activeId = comment.id; renderList(); paint(documentIndex());
         };
       }
       card.classList.toggle("is-active", comment.id === activeId);
@@ -224,17 +250,21 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
       var orphan = card.querySelector("small");
       if (comment.anchor.detached && !orphan) { orphan = document.createElement("small"); orphan.textContent = window.uiText("原文已修改或删除"); card.append(orphan); }
       else if (!comment.anchor.detached && orphan) orphan.remove();
-      body.hidden = comment.id === editingId;
+      card.querySelector(".review-body").hidden = comment.id === editingId;
       var form = card.querySelector(".review-edit-form");
       if (comment.id === editingId && !form) card.append(createEditForm(comment));
       else if (comment.id !== editingId && form) form.remove();
-      if (list.children[i] !== card) list.insertBefore(card, list.children[i] || null);
+      if (list.children[i] !== card) {
+        var focused = document.activeElement, keepFocus = card.contains(focused);
+        list.insertBefore(card, list.children[i] || null);
+        if (keepFocus && document.activeElement !== focused) focused.focus({preventScroll: true});
+      }
     });
   }
   function finishEditing() {
     var card = Array.from(list.children).find(function (card) { return card.dataset.commentId === editingId; });
     editingId = null; renderList(); notice("");
-    if (card && card.isConnected) card.querySelector(".review-edit").focus({preventScroll: true});
+    if (card && card.isConnected) card.querySelector(".review-body").focus({preventScroll: true});
   }
   function validText(text, field) {
     if (!text || text.length > 10000) {
@@ -264,14 +294,14 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
   window.editReviewComment = function (id) {
     if (editingId && editingId !== id) { notice("请先保存或取消正在编辑的批注。"); return; }
     if (!comments.some(function (c) { return c.id === id; })) return;
-    closeComposer(); editingId = activeId = id; notice(""); renderList(); paint(indexText(root()));
+    closeComposer(); editingId = activeId = id; notice(""); renderList(); paint(documentIndex());
     var field = list.querySelector(".review-edit-input"); field.focus({preventScroll: true}); field.closest("form").scrollIntoView({block: "nearest"});
   };
   window.addReviewComment = function () {
     if (editingId) { notice("请先保存或取消正在编辑的批注。"); return; }
     refresh(); var anchor = selectionAnchor() || remembered;
     window.showReview(true);
-    if (!anchor || anchor.detached || !locate(anchor, indexText(root()))) { notice("请先选中需要批注的正文文字。"); return; }
+    if (!anchor || anchor.detached || !locate(anchor, documentIndex())) { notice("请先选中需要批注的正文文字。"); return; }
     pending = JSON.parse(JSON.stringify(anchor)); notice("");
     document.getElementById("mdv-review-quote").textContent = anchor.quote;
     composer.hidden = false; input.value = ""; panel.scrollTop = 0; input.focus({preventScroll: true});
@@ -286,14 +316,14 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
     var index = comments.findIndex(function (c) { return c.id === target; });
     if (index < 0) { window.showReview(true); notice("请先点击需要删除的批注。"); return; }
     comments.splice(index, 1); if (editingId === target) editingId = null;
-    activeId = null; renderList(); paint(indexText(root())); notice(""); changed();
+    activeId = null; renderList(); paint(documentIndex()); notice(""); changed();
   };
   composer.addEventListener("submit", function (event) {
     event.preventDefault(); refresh(); var text = input.value.trim();
     if (!validText(text, input)) return;
     if (!pending || pending.detached) { notice("选中的原文已修改，请重新选择文字。"); return; }
     var comment = {id: crypto.randomUUID(), text: text, anchor: JSON.parse(JSON.stringify(pending))};
-    comments.push(comment); activeId = comment.id; closeComposer(); renderList(); paint(indexText(root())); notice(""); changed();
+    comments.push(comment); activeId = comment.id; closeComposer(); renderList(); paint(documentIndex()); notice(""); changed();
   });
   document.getElementById("mdv-review-cancel").addEventListener("click", closeComposer);
   document.getElementById("mdv-review-close").addEventListener("click", function () { window.showReview(false); });
@@ -312,9 +342,14 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
     if (event.key.toLowerCase() === "m" && (event.ctrlKey || event.metaKey) && event.altKey) { event.preventDefault(); window.addReviewComment(); }
     if (!event.isComposing && event.key === "Escape" && !composer.hidden) { event.preventDefault(); closeComposer(); root().focus({preventScroll: true}); }
   }, true);
-  new MutationObserver(window.refreshReview).observe(document.getElementById("vditor"), {childList: true, characterData: true, subtree: true});
+  reviewObserver = new MutationObserver(function () { cachedIndex = null; window.refreshReview(); });
+  reviewObserver.observe(document.querySelector("#vditor .vditor-content"), {childList: true, characterData: true, subtree: true});
+  // Settle edits against the old mode's text before source markers appear/disappear.
+  document.querySelector("#vditor .vditor-toolbar").addEventListener("click", function (event) {
+    if (event.target.closest("[data-mode]")) refresh();
+  }, true);
   window.loadReviewDocument = function (md) {
-    loading = true; comments = []; previous = null; previousMd = null; remembered = null; activeId = editingId = null; closeComposer(); notice("");
+    loading = true; comments = []; previous = null; previousMode = null; cachedIndex = null; remembered = null; activeId = editingId = null; closeComposer(); notice("");
     var match = /\n\n<!-- markdownview-review:v1\n([\s\S]*?)\n-->\s*$/.exec(md);
     if (match) {
       try {
@@ -334,7 +369,7 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
     renderList(); loading = false; return md;
   };
   window.reviewDocumentLoaded = function () {
-    previous = indexText(root()); previousMd = editor.getValue();
+    previous = documentIndex(); previousMode = editor.getCurrentMode();
     comments.forEach(function (c) { if (!c.anchor.detached && !locate(c.anchor, previous)) { c.anchor.detached = true; } });
     renderList(); paint(previous);
     selectionChanged("");
@@ -346,8 +381,10 @@ window.installReviewFeatures = function (editor, changed, selectionChanged) {
     return md.replace(/\n*$/, "") + "\n\n<!-- markdownview-review:v1\n" + json + "\n-->\n";
   };
   function fitPanel() {
-    panel.style.top = document.querySelector("#vditor .vditor-toolbar").getBoundingClientRect().bottom + "px";
-    panel.style.bottom = document.getElementById("editor-statusbar").getBoundingClientRect().height + "px";
+    if (panel.hidden) return;
+    var top = document.querySelector("#vditor .vditor-toolbar").getBoundingClientRect().bottom + "px";
+    var bottom = document.getElementById("editor-statusbar").getBoundingClientRect().height + "px";
+    panel.style.top = top; panel.style.bottom = bottom;
   }
   new ResizeObserver(fitPanel).observe(document.querySelector("#vditor .vditor-toolbar"));
   fitPanel(); toolbar.setAttribute("aria-expanded", "false"); renderList();
