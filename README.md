@@ -4,9 +4,9 @@
 
 基于 **Python + PySide6 / Qt WebEngine + Vditor + KaTeX**，支持即时渲染、多文档、批注、草稿恢复、模型翻译，以及 Word / PDF 导出。
 
-**当前版本：1.3.7。** 包含选区悬浮工具条与一键高亮。仓库保留应用源码、运行资源、构建配置及说明文档；测试脚本仅在本地维护，不上传 EXE 或安装包。可以按下文从源码运行。
+**当前源码版本：1.3.8。** 包含选区悬浮工具条与一键高亮。仓库保留应用源码、运行资源、构建配置及说明文档；测试脚本仅在本地维护，不上传 EXE 或安装包。可以按下文从源码运行。
 
-**源码后续更新（尚未打包）**：悬浮工具条增加批注和翻译，图片右键可打开所在文件夹，文件选择窗口恢复 Windows 原生样式与系统左侧导航。详见 [操作与文件窗口更新](docs/native-file-dialogs-and-selection-actions.md)。
+**1.3.8 源码更新**：悬浮工具条增加批注和翻译，图片右键可打开所在文件夹，文件选择窗口恢复 Windows 原生样式与系统左侧导航。详见 [操作与文件窗口更新](docs/native-file-dialogs-and-selection-actions.md)。
 
 - **局部文字格式**：选中一句或一段，修改字体、字号和文字颜色，保存及 Word / PDF 导出保留格式。
 - **选区悬浮工具条**：选中文字后，就近显示字体、字号、加粗、斜体、下划线、文字颜色、高亮、批注和翻译操作。顶部高亮主按钮直接应用，小箭头选择颜色；悬浮高亮使用相同颜色，不另开颜色面板。拖选过程中不弹出，支持深浅主题与减少动画设置。
@@ -188,13 +188,13 @@ DOCX 导出通过 Pandoc 将公式转换为 Word 原生 OMML 对象，将表格�
 
 ## 构建 Windows 安装包
 
-安装脚本当前版本为 **1.3.7**，目标为 **Windows 10 1809 或更新版本的 x64 兼容环境**。以下供自行构建使用；本地生成的安装包不上传到仓库。
+安装脚本当前版本为 **1.3.8**，目标为 **Windows 10 1809 或更新版本的 x64 兼容环境**。以下供自行构建使用；本地生成的安装包不上传到仓库。
 
 先完成上述依赖与 Pandoc 安装，再安装 **Inno Setup 6**。在项目根目录执行：
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install pyinstaller
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --distpath dist/release-1.3.7 --workpath build/release-1.3.7 MarkdownView.spec
+.\.venv\Scripts\python.exe -m PyInstaller --noconfirm --clean --distpath dist/release-1.3.8 --workpath build/release-1.3.8 MarkdownView.spec
 
 # 如安装位置不同，请替换为实际的 ISCC.exe 路径
 & "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe" installer/MarkdownView.iss
