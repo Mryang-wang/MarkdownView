@@ -12,9 +12,14 @@ window.installInlineFormats = function (editor, changed, getBridge) {
   colorButton.onclick = function () { window.openHighlightColors(); };
   colorButton.onmousedown = function (event) { event.preventDefault(); };
   button.parentElement.appendChild(colorButton);
+  var highlightAnchor = colorButton;
   var savedRange = null, savedMode = null, color = "#ffe58f", refreshTimer = null;
   var underlinePanel = document.getElementById("mdv-underline-panel");
   var underlineButton = document.querySelector('#vditor button[data-type="u-underline-style"]');
+  var underlineItem = underlineButton.parentElement;
+  document.querySelector('#vditor button[data-type="u-underline"]').parentElement.appendChild(underlineButton);
+  underlineItem.remove();
+  var underlineAnchor = underlineButton;
   var underlineRange = null, underlineMode = null, underlineStyle = "solid";
   var underlineStyles = ["solid", "double", "wavy", "dashed", "dotted"];
   var highlightNames = [];
@@ -82,7 +87,6 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     return range;
   }
   function restoreRange(range) {
-    editor.focus();
     if (!range) { return null; }
     var bookmark = bookmarks.get(range);
     if (!root().contains(range.startContainer) || !root().contains(range.endContainer) ||
@@ -100,6 +104,9 @@ window.installInlineFormats = function (editor, changed, getBridge) {
       if (!hasStart || !hasEnd) { return null; }
       range = restored;
     }
+    // Focusing a tall contenteditable with the default behavior scrolls it to
+    // the top before its saved selection is restored (also on picker cancel).
+    root().focus({preventScroll: true});
     var selection = window.getSelection();
     selection.removeAllRanges(); selection.addRange(range);
     return range;
@@ -168,12 +175,12 @@ window.installInlineFormats = function (editor, changed, getBridge) {
   }
 
   function closePanel(restore) {
-    panel.hidden = true; colorButton.setAttribute("aria-expanded", "false");
+    panel.hidden = true; colorButton.setAttribute("aria-expanded", "false"); highlightAnchor.setAttribute("aria-expanded", "false");
     if (restore && savedMode === editor.getCurrentMode()) { restoreRange(savedRange); }
     savedRange = null;
   }
   function closeUnderlinePanel(restore) {
-    underlinePanel.hidden = true; underlineButton.setAttribute("aria-expanded", "false");
+    underlinePanel.hidden = true; underlineButton.setAttribute("aria-expanded", "false"); underlineAnchor.setAttribute("aria-expanded", "false");
     if (restore) { restoreRange(underlineRange); }
     underlineRange = null;
   }
@@ -201,8 +208,11 @@ window.installInlineFormats = function (editor, changed, getBridge) {
       control.querySelector("rect").setAttribute("fill", color);
       control.querySelector("text").setAttribute("fill", foreground(color));
     });
+    // Rendering may collapse a detached Range; its text bookmark still records
+    // the selection and applyFormat validates/restores it before editing.
+    var savedSelection = savedRange && bookmarks.get(savedRange);
     if (!window.mdvReadOnly && !window.mdvTranslationReading && root().isContentEditable &&
-        savedMode === editor.getCurrentMode() && savedRange && !savedRange.collapsed) {
+        savedMode === editor.getCurrentMode() && savedSelection && savedSelection.selected) {
       applyFormat('<mark style="background-color: ' + color + '; color: ' + foreground(color) + '">', '</mark>', savedRange);
     }
     closePanel(false);
@@ -221,17 +231,18 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     if (!panel.hidden) { closePanel(true); }
     applyUnderline(currentRange());
   };
-  window.openUnderlineStyles = function () {
+  window.openUnderlineStyles = function (trigger) {
     if (!underlinePanel.hidden) { closeUnderlinePanel(true); return; }
     if (!panel.hidden) { closePanel(true); }
+    underlineAnchor = trigger || underlineButton;
     underlineRange = currentRange(); underlineMode = editor.getCurrentMode();
-    underlinePanel.hidden = false; underlineButton.setAttribute("aria-expanded", "true");
+    underlinePanel.hidden = false; underlineButton.setAttribute("aria-expanded", "true"); underlineAnchor.setAttribute("aria-expanded", "true");
     underlinePanel.querySelectorAll("[data-underline-style]").forEach(function (option) {
       var selected = option.dataset.underlineStyle === underlineStyle;
       option.setAttribute("aria-pressed", String(selected));
       option.querySelector(".underline-check").textContent = selected ? "✓" : "";
     });
-    positionPanel(underlinePanel, underlineButton);
+    positionPanel(underlinePanel, underlineAnchor);
     underlinePanel.querySelector('[aria-pressed="true"]').focus({ preventScroll: true });
   };
   [["单横线", "solid"], ["双横线", "double"], ["波浪线", "wavy"],
@@ -261,19 +272,20 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     else if (event.key === "End") { next = options.length - 1; }
     if (next !== undefined) { event.preventDefault(); options[next].focus(); }
   });
-  window.openHighlightColors = function () {
+  window.openHighlightColors = function (trigger) {
     if (window.mdvReadOnly || window.mdvTranslationReading || !root().isContentEditable) { return; }
     if (!panel.hidden) { closePanel(true); return; }
     if (!underlinePanel.hidden) { closeUnderlinePanel(true); }
+    highlightAnchor = trigger || colorButton;
     savedRange = currentRange(); savedMode = editor.getCurrentMode();
     picker.value = color; hexInput.value = color.toUpperCase();
     hexInput.removeAttribute("aria-invalid"); error.hidden = true;
-    panel.hidden = false; colorButton.setAttribute("aria-expanded", "true");
+    panel.hidden = false; colorButton.setAttribute("aria-expanded", "true"); highlightAnchor.setAttribute("aria-expanded", "true");
     panel.querySelectorAll("[data-color]").forEach(function (swatch) {
       var selected = swatch.dataset.color === color;
       swatch.setAttribute("aria-pressed", String(selected)); swatch.textContent = selected ? "✓" : "";
     });
-    positionPanel(panel, colorButton);
+    positionPanel(panel, highlightAnchor);
     panel.querySelector("button").focus({ preventScroll: true });
   };
   [["黄色", "#ffe58f"], ["绿色", "#bbf7d0"], ["蓝色", "#bfdbfe"],
@@ -309,14 +321,14 @@ window.installInlineFormats = function (editor, changed, getBridge) {
     }
   }, true);
   document.addEventListener("pointerdown", function (event) {
-    if (!panel.hidden && !panel.contains(event.target) && !button.contains(event.target) && !colorButton.contains(event.target)) { closePanel(false); }
-    if (!underlinePanel.hidden && !underlinePanel.contains(event.target) && !underlineButton.contains(event.target)) {
+    if (!panel.hidden && !panel.contains(event.target) && !button.contains(event.target) && !colorButton.contains(event.target) && !highlightAnchor.contains(event.target)) { closePanel(false); }
+    if (!underlinePanel.hidden && !underlinePanel.contains(event.target) && !underlineButton.contains(event.target) && !underlineAnchor.contains(event.target)) {
       closeUnderlinePanel(false);
     }
   }, true);
   window.addEventListener("resize", function () {
-    if (!panel.hidden) { positionPanel(panel, colorButton); }
-    if (!underlinePanel.hidden) { positionPanel(underlinePanel, underlineButton); }
+    if (!panel.hidden) { positionPanel(panel, highlightAnchor); }
+    if (!underlinePanel.hidden) { positionPanel(underlinePanel, underlineAnchor); }
   });
 
   function topBlock(node, element) {

@@ -176,10 +176,8 @@ html[data-theme="dark"] #vditor { --toolbar-icon-color: #a1a197; }
 #vditor .vditor-toolbar__item > button { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 6px; border-radius: 5px; transition: background .12s ease, color .12s ease; }
 #vditor .vditor-toolbar__item > button:hover { background: var(--hover); }
 #vditor .vditor-toolbar__item > button[data-type="u-underline-style"] { width: 16px; padding: 2px; }
-#vditor .vditor-toolbar__item:has(> [data-type="u-mark"]) { display: flex; }
-#vditor .vditor-toolbar__item > button[data-type="u-mark-color"] { width: 16px; padding: 2px; }
-#vditor .vditor-toolbar__item:has([data-type="u-underline"]) { padding-right: 0; }
-#vditor .vditor-toolbar__item:has([data-type="u-underline-style"]) { padding-left: 0; }
+#vditor .vditor-toolbar__item:has(> :is([data-type="u-mark"], [data-type="u-underline"], [data-type="mdv-font-size"], [data-type="mdv-text-color"])) { display: flex; }
+#vditor .vditor-toolbar__item > button:is([data-type="u-mark-color"], [data-type="mdv-font-size-picker"], [data-type="mdv-text-color-picker"]) { width: 16px; padding: 2px; }
 #vditor .vditor-toolbar__item > button:focus-visible { outline: 2px solid var(--muted); outline-offset: 1px; }
 #vditor .vditor-toolbar__item > button.vditor-menu--current { background: var(--hover); color: var(--text); }
 #vditor .vditor-toolbar__item > button.vditor-menu--disabled { opacity: .35; cursor: default; background: transparent; }
@@ -340,6 +338,11 @@ html[data-motion-enabled="false"] #vditor .vditor-toolbar__item > button { trans
 #mdv-selection-toolbar button:disabled { opacity: .35; cursor: default; }
 #mdv-selection-toolbar button:focus-visible { outline-offset: 0; }
 #mdv-selection-toolbar svg { width: 16px; height: 16px; fill: currentColor; }
+#mdv-selection-toolbar svg.selection-chevron { width: 10px; height: 10px; flex-shrink: 0; }
+#mdv-selection-toolbar .selection-split { display: flex; flex: 0 0 auto; }
+#mdv-selection-toolbar .selection-split > button:first-child { border-radius: 5px 0 0 5px; }
+#mdv-selection-toolbar button.selection-picker { width: 16px; min-width: 16px; padding: 2px; border-radius: 0 5px 5px 0; }
+#mdv-selection-toolbar .selection-picker svg { width: 10px; height: 10px; }
 #mdv-selection-toolbar [data-selection-action="mdv-comment"] svg { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
 #mdv-selection-toolbar [data-selection-action="mdv-font"] { padding: 6px 8px; }
 #mdv-selection-toolbar [data-selection-action="mdv-font"] svg { width: 12px; height: 12px; }

@@ -385,11 +385,11 @@
       { name: "mdv-font", tip: "选中文字字体", tipPosition: "s",
         icon: '<span>字体</span><svg viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
         click: function () { window.openFontPicker(); } },
-      { name: "mdv-font-size", tip: "选中文字字号", tipPosition: "s", icon: '<span>字号</span>',
-        click: function () { window.openSizePicker(); } },
-      { name: "mdv-text-color", tip: "文字颜色", tipPosition: "s",
+      { name: "mdv-font-size", tip: "应用当前字号", tipPosition: "s", icon: '<span>12 pt</span>',
+        click: function () { window.applyFontSize(); } },
+      { name: "mdv-text-color", tip: "应用当前文字颜色", tipPosition: "s",
         icon: '<svg viewBox="0 0 20 20"><path d="M5 14 10 3l5 11M7 10h6" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="3" y="16" width="14" height="3" rx="1" fill="#c62828"/></svg>',
-        click: function () { window.openTextColorPicker(); } },
+        click: function () { window.applyTextColor(); } },
       "bold", "italic",
       { name: "u-underline", tip: "下划线", tipPosition: "s", icon: ICON_UNDERLINE,
         click: function () { window.applyUnderline(); } },
@@ -509,7 +509,7 @@
 
   function applyToolbarTooltips() {
     var tips = {
-      "mdv-sidebar": "展开侧边栏 · Ctrl+\\", "emoji": "表情", "headings": "标题", "mdv-font": "选中文字字体", "mdv-font-size": "选中文字字号", "mdv-text-color": "文字颜色", "bold": "加粗", "italic": "斜体",
+      "mdv-sidebar": "展开侧边栏 · Ctrl+\\", "emoji": "表情", "headings": "标题", "mdv-font": "选中文字字体", "mdv-font-size": "应用当前字号", "mdv-font-size-picker": "选择字号", "mdv-text-color": "应用当前文字颜色", "mdv-text-color-picker": "选择文字颜色", "bold": "加粗", "italic": "斜体",
       "u-underline": "下划线", "u-underline-style": "下划线样式", "u-strike": "删除线 ~~文本~~", "u-sup": "上标 ^文本^",
       "u-sub": "下标 ~文本~", "u-mark": "高亮文字", "u-mark-color": "高亮颜色", "list": "无序列表",
       "ordered-list": "有序列表", "check": "任务列表", "outdent": "减少缩进", "indent": "增加缩进",

@@ -8,8 +8,12 @@ window.installSelectionToolbar = function (editor) {
   const actions = new Map(), popups = new Map([
     ["mdv-font", ["mdv-font-panel", "openFontPicker"]],
     ["mdv-font-size", ["mdv-size-panel", "openSizePicker"]],
-    ["mdv-text-color", ["mdv-color-panel", "openTextColorPicker"]]
+    ["u-underline-style", ["mdv-underline-panel", "openUnderlineStyles"]],
+    ["mdv-text-color-picker", ["mdv-color-panel", "openTextColorPicker"]],
+    ["u-mark-color", ["mdv-highlight-panel", "openHighlightColors"]]
   ]);
+  const splitPickers = new Map([["u-underline-style", "u-underline"],
+    ["mdv-text-color-picker", "mdv-text-color"], ["u-mark-color", "u-mark"]]);
   const railActions = {
     "mdv-comment": {label: "添加批注…", panel: "mdv-review-panel", run: () => window.addReviewComment(),
       icon: document.querySelector('#vditor [data-type="mdv-review"]').innerHTML},
@@ -91,15 +95,17 @@ window.installSelectionToolbar = function (editor) {
     bar.style.left = Math.round(x) + "px"; bar.style.top = Math.round(y) + "px";
     bar.style.visibility = ""; bar.classList.add("is-visible");
   }
-  ["mdv-font", "mdv-font-size", "bold", "italic", "u-underline", "mdv-text-color", "u-mark", ...Object.keys(railActions)].forEach(name => {
+  ["mdv-font", "mdv-font-size", "bold", "italic", "u-underline", "u-underline-style", "mdv-text-color", "mdv-text-color-picker", "u-mark", "u-mark-color", ...Object.keys(railActions)].forEach(name => {
     const original = document.querySelector('#vditor .vditor-toolbar [data-type="' + name + '"]');
     const rail = railActions[name];
     const button = document.createElement("button");
     button.type = "button"; button.dataset.selectionAction = name;
     button.innerHTML = rail ? rail.icon : original.innerHTML;
-    button.title = rail ? rail.label : original.getAttribute("data-mdv-tip"); button.setAttribute("aria-label", button.title);
+    button.title = rail ? rail.label : (name === "mdv-font-size" ? "选择字号" : original.getAttribute("data-mdv-tip"));
+    button.setAttribute("aria-label", button.title);
     if (rail) button.setAttribute("aria-controls", rail.panel);
     if (popups.has(name)) {
+      if (name === "mdv-font-size") button.insertAdjacentHTML("beforeend", '<svg class="selection-chevron" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>');
       button.setAttribute("aria-haspopup", "dialog"); button.setAttribute("aria-expanded", "false");
       button.setAttribute("aria-controls", popups.get(name)[0]);
     }
@@ -119,14 +125,22 @@ window.installSelectionToolbar = function (editor) {
       } finally { applying = false; }
       schedule();
     };
-    actions.set(name, button); bar.appendChild(button);
+    actions.set(name, button);
+    if (splitPickers.has(name)) {
+      button.classList.add("selection-picker");
+      actions.get(splitPickers.get(name)).parentElement.appendChild(button);
+    } else if ([...splitPickers.values()].includes(name)) {
+      const group = document.createElement("span"); group.className = "selection-split";
+      group.appendChild(button); bar.appendChild(group);
+    } else bar.appendChild(button);
     if (rail) return;
     function sync() {
       button.disabled = original.disabled || original.classList.contains("vditor-menu--disabled");
       if (name === "bold" || name === "italic") button.setAttribute("aria-pressed", String(original.classList.contains("vditor-menu--current")));
       if (name === "mdv-text-color") button.querySelector("rect").setAttribute("fill", original.querySelector("rect").getAttribute("fill"));
+      if (name === "mdv-font-size") button.querySelector("span").textContent = original.querySelector("span").textContent;
     }
-    new MutationObserver(sync).observe(original, {attributes: true, subtree: name === "mdv-text-color", attributeFilter: ["class", "disabled", "fill"]});
+    new MutationObserver(sync).observe(original, {attributes: true, subtree: name === "mdv-text-color", attributeFilter: ["class", "disabled", "fill", "data-font-size"]});
     sync();
   });
   bar.addEventListener("mousedown", event => { if (event.button === 0) event.preventDefault(); });
